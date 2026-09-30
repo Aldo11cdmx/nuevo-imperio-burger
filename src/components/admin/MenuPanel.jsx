@@ -92,7 +92,13 @@ export default function MenuPanel({ adminPin }) {
         category: form.category,
         is_active: form.is_active,
         tracks_stock: form.tracks_stock,
-        stock: Number(form.stock) || 0,
+        // Al EDITAR no se manda el stock: cambiar el nombre de un producto no debe
+        // tocar el inventario. Las existencias se mueven solo por set_stock (conteo
+        // físico) y adjust_stock (merma o entrada), y las dos dejan rastro.
+        //
+        // En ALTA sí se manda, porque ahí el número es el conteo inicial de lo que se
+        // puso en el refri, y un producto nuevo nace en cero.
+        ...(editing ? {} : { stock: Number(form.stock) || 0 }),
         low_stock_threshold: Number(form.low_stock_threshold) || 0,
         image_url: form.image_url,
       },
@@ -190,17 +196,18 @@ export default function MenuPanel({ adminPin }) {
 
         {form.tracks_stock && (
           <div className="grid grid-cols-2 gap-2">
-            <label className="block">
-              <span className="mb-1 block text-xs text-bone-muted">Existencias</span>
-              <input
-                value={form.stock}
-                onChange={(event) =>
-                  setForm({ ...form, stock: event.target.value.replace(/\D/g, '') })
-                }
-                inputMode="numeric"
-                className={`${INPUT} font-ticket text-center`}
-              />
-            </label>
+            {/* Las existencias ya no se escriben desde aquí. Antes este campo pisaba el
+                stock por la puerta de atrás de la bitácora; ahora es de solo lectura y
+                el conteo físico vive en la pestaña Inventario. */}
+            <div className="block">
+              <span className="mb-1 block text-xs text-bone-muted">Existencias actuales</span>
+              <p className={`${INPUT} text-center font-ticket ${Number(form.stock) <= 0 ? 'text-emberred-400' : ''}`}>
+                {form.stock}
+              </p>
+              <span className="mt-1 block text-[0.7rem] text-bone-faint">
+                Se cambia desde Inventario, con motivo.
+              </span>
+            </div>
             <label className="block">
               <span className="mb-1 block text-xs text-bone-muted">Umbral</span>
               <input
