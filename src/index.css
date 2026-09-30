@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-carbon-950 text-ash-100 font-sans antialiased;
+    /* Evita el rebote de scroll al arrastrar en pantallas táctiles, sin quitar scroll. */
+    overscroll-behavior-y: none;
+  }
+
+  button {
+    @apply touch-manipulation select-none;
+  }
+
+  /* Los inputs de texto sí deben poder seleccionarse al corregirse. */
+  input,
+  textarea {
+    @apply select-text;
+  }
+
+  /* Foco visible solo por teclado: en táctil el anillo se siente como un parpadeo. */
+  :where(a, button, input, select, textarea):focus-visible {
+    @apply outline-none ring-2 ring-ember-300 ring-offset-2 ring-offset-carbon-950;
+  }
+}
