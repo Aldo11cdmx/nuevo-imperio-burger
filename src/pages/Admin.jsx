@@ -3,6 +3,9 @@ import { KeyRound } from 'lucide-react'
 import EmployeesPanel from '../components/admin/EmployeesPanel'
 import InventoryPanel from '../components/admin/InventoryPanel'
 import MenuPanel from '../components/admin/MenuPanel'
+import OrderHistoryPanel from '../components/admin/reports/OrderHistoryPanel'
+import ReportsPanel from '../components/admin/reports/ReportsPanel'
+import ShiftHistoryPanel from '../components/admin/reports/ShiftHistoryPanel'
 import TouchButton from '../components/TouchButton'
 import ScreenHeader from '../components/ScreenHeader'
 import { INPUT } from '../components/admin/fields'
@@ -12,6 +15,9 @@ const TABS = [
   { id: 'menu', label: 'Menú' },
   { id: 'inventory', label: 'Inventario' },
   { id: 'employees', label: 'Empleados' },
+  { id: 'reports', label: 'Reportes' },
+  { id: 'shifts', label: 'Cortes' },
+  { id: 'history', label: 'Órdenes' },
 ]
 
 export default function Admin() {
@@ -87,7 +93,7 @@ export default function Admin() {
     <div className="flex min-h-dvh flex-col">
       <ScreenHeader
         title="Administración"
-        subtitle="Carta, inventario y accesos"
+        subtitle="Carta, inventario, reportes y accesos"
         right={
           <TouchButton variant="ghost" onClick={lock} className="shrink-0">
             Salir
@@ -95,14 +101,14 @@ export default function Admin() {
         }
       />
 
-      <nav className="flex gap-1.5 border-b border-white/10 px-4 pt-3 md:px-5">
+      <nav className="flex gap-1.5 overflow-x-auto border-b border-white/10 px-4 pt-3 md:px-5">
         {TABS.map((item) => (
           <button
             key={item.id}
             type="button"
             onClick={() => setTab(item.id)}
             aria-current={tab === item.id ? 'page' : undefined}
-            className={`rounded-t-xl px-4 py-2.5 text-sm font-semibold transition-colors ${
+            className={`shrink-0 rounded-t-xl px-4 py-2.5 text-sm font-semibold transition-colors ${
               tab === item.id
                 ? 'border-b-2 border-saffron-400 text-bone'
                 : 'border-b-2 border-transparent text-bone-muted hover:text-bone'
@@ -117,6 +123,9 @@ export default function Admin() {
         {tab === 'menu' && <MenuPanel adminPin={adminPin} />}
         {tab === 'inventory' && <InventoryPanel adminPin={adminPin} />}
         {tab === 'employees' && <EmployeesPanel adminPin={adminPin} />}
+        {tab === 'reports' && <ReportsPanel adminPin={adminPin} />}
+        {tab === 'shifts' && <ShiftHistoryPanel adminPin={adminPin} />}
+        {tab === 'history' && <OrderHistoryPanel adminPin={adminPin} />}
       </main>
     </div>
   )
