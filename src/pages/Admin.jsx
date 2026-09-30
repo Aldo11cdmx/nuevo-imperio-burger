@@ -1,118 +1,57 @@
-import { useEffect, useState } from 'react'
-import { KeyRound, Plus, RefreshCw } from 'lucide-react'
-import ScreenHeader from '../components/ScreenHeader'
+import { useState } from 'react'
+import { KeyRound } from 'lucide-react'
+import EmployeesPanel from '../components/admin/EmployeesPanel'
+import InventoryPanel from '../components/admin/InventoryPanel'
+import MenuPanel from '../components/admin/MenuPanel'
 import TouchButton from '../components/TouchButton'
+import ScreenHeader from '../components/ScreenHeader'
+import { INPUT } from '../components/admin/fields'
 import supabase from '../lib/supabase'
 
-const ROLES = [
-  { value: 'cashier', label: 'Cajero' },
-  { value: 'waiter', label: 'Mesero' },
-  { value: 'kitchen', label: 'Cocina' },
-  { value: 'admin', label: 'Administrador' },
+const TABS = [
+  { id: 'menu', label: 'Menú' },
+  { id: 'inventory', label: 'Inventario' },
+  { id: 'employees', label: 'Empleados' },
 ]
-
-const INPUT =
-  'w-full rounded-xl border border-white/10 bg-ink-800/70 px-4 py-3 outline-none transition-colors focus:border-saffron-400/60'
 
 export default function Admin() {
   const [adminPin, setAdminPin] = useState('')
   const [pinInput, setPinInput] = useState('')
-  const [employees, setEmployees] = useState([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [form, setForm] = useState({ full_name: '', role: 'waiter', pin: '' })
+  const [checking, setChecking] = useState(false)
+  const [tab, setTab] = useState('menu')
 
   /**
-   * employees no tiene políticas RLS para anon: cada operación sensible va por un RPC
-   * SECURITY DEFINER que revalida el PIN de administrador en el servidor. El PIN vive
-   * solo en el estado del componente y no se persiste.
-   *
-   * Una autorización fallida devuelve un resultado vacío (no una excepción): si el RPC
-   * lanzara, la transacción se abortaría y con ella el contador anti-fuerza-bruta.
+   * El PIN solo se valida una vez aquí. Cada panel vuelve a pasarlo a su RPC, que lo
+   * revalida en el servidor: el navegador no gana ningún privilegio por haber
+   * superado esta pantalla.
    */
-  const load = async (pin) => {
-    setLoading(true)
-    setError(null)
-
-    const { data, error: rpcError } = await supabase.rpc('list_employees', { p_admin_pin: pin })
-
-    if (rpcError) {
-      setLoading(false)
-      setError(rpcError.message)
-      return false
-    }
-
-    const rows = data ?? []
-    if (rows.length === 0) {
-      setLoading(false)
-      setError('Autorización de administrador fallida')
-      return false
-    }
-
-    setEmployees(rows)
-    setLoading(false)
-    return true
-  }
-
-  useEffect(() => {
-    if (adminPin) load(adminPin)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adminPin])
-
   const authorize = async (event) => {
     event.preventDefault()
-    const ok = await load(pinInput)
-    if (ok) {
-      setAdminPin(pinInput)
-      setPinInput('')
-    }
-  }
-
-  const create = async (event) => {
-    event.preventDefault()
+    setChecking(true)
     setError(null)
 
-    const { data, error: rpcError } = await supabase.rpc('create_employee', {
-      p_admin_pin: adminPin,
-      p_full_name: form.full_name,
-      p_role: form.role,
-      p_pin: form.pin,
+    const { data, error: rpcError } = await supabase.rpc('list_all_products', {
+      p_admin_pin: pinInput,
     })
+
+    setChecking(false)
 
     if (rpcError) {
       setError(rpcError.message)
       return
     }
-    if (!data) {
+    if (!data || data.length === 0) {
       setError('Autorización de administrador fallida')
       return
     }
-    setForm({ full_name: '', role: 'waiter', pin: '' })
-    load(adminPin)
-  }
-
-  const toggle = async (employeeId) => {
-    setError(null)
-
-    const { data, error: rpcError } = await supabase.rpc('toggle_employee', {
-      p_admin_pin: adminPin,
-      p_employee_id: employeeId,
-    })
-
-    if (rpcError) {
-      setError(rpcError.message)
-      return
-    }
-    if (data === null) {
-      setError('Autorización de administrador fallida')
-      return
-    }
-    load(adminPin)
+    setAdminPin(pinInput)
+    setPinInput('')
   }
 
   const lock = () => {
     setAdminPin('')
-    setEmployees([])
+    setPinInput('')
     setError(null)
   }
 
@@ -132,10 +71,11 @@ export default function Admin() {
             inputMode="numeric"
             maxLength={4}
             required
+            autoFocus
             className={`${INPUT} text-center font-ticket text-2xl tracking-[0.5em]`}
           />
           {error && <p className="text-center text-sm text-emberred-400">{error}</p>}
-          <TouchButton type="submit" className="w-full">
+          <TouchButton type="submit" className="w-full" disabled={checking}>
             Autorizar
           </TouchButton>
         </form>
@@ -147,108 +87,36 @@ export default function Admin() {
     <div className="flex min-h-dvh flex-col">
       <ScreenHeader
         title="Administración"
-        subtitle="Empleados y accesos"
+        subtitle="Carta, inventario y accesos"
         right={
-          <div className="flex shrink-0 gap-2">
-            <TouchButton variant="secondary" onClick={() => load(adminPin)} disabled={loading}>
-              <RefreshCw size={18} />
-            </TouchButton>
-            <TouchButton variant="ghost" onClick={lock}>
-              Salir
-            </TouchButton>
-          </div>
+          <TouchButton variant="ghost" onClick={lock} className="shrink-0">
+            Salir
+          </TouchButton>
         }
       />
 
-      <main className="grid flex-1 grid-cols-1 gap-5 p-4 md:p-5 lg:grid-cols-[400px_1fr]">
-        <form
-          onSubmit={create}
-          className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-glass-sm"
-        >
-          <h2 className="text-xs font-semibold tracking-[0.2em] text-bone-muted uppercase">Nuevo empleado</h2>
-          <input
-            value={form.full_name}
-            onChange={(event) => setForm({ ...form, full_name: event.target.value })}
-            placeholder="Nombre completo"
-            required
-            className={INPUT}
-          />
-          <select
-            value={form.role}
-            onChange={(event) => setForm({ ...form, role: event.target.value })}
-            className={INPUT}
+      <nav className="flex gap-1.5 border-b border-white/10 px-4 pt-3 md:px-5">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setTab(item.id)}
+            aria-current={tab === item.id ? 'page' : undefined}
+            className={`rounded-t-xl px-4 py-2.5 text-sm font-semibold transition-colors ${
+              tab === item.id
+                ? 'border-b-2 border-saffron-400 text-bone'
+                : 'border-b-2 border-transparent text-bone-muted hover:text-bone'
+            }`}
           >
-            {ROLES.map((role) => (
-              <option key={role.value} value={role.value}>
-                {role.label}
-              </option>
-            ))}
-          </select>
-          <input
-            value={form.pin}
-            onChange={(event) => setForm({ ...form, pin: event.target.value.replace(/\D/g, '').slice(0, 4) })}
-            placeholder="PIN (4 dígitos)"
-            inputMode="numeric"
-            maxLength={4}
-            required
-            className={`${INPUT} text-center font-ticket text-xl tracking-[0.4em]`}
-          />
-          <TouchButton type="submit" className="w-full">
-            <Plus size={18} /> Crear
-          </TouchButton>
-        </form>
+            {item.label}
+          </button>
+        ))}
+      </nav>
 
-        <section className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.06] shadow-glass-sm">
-          {error && <p className="p-4 text-sm text-emberred-400">{error}</p>}
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-white/10 text-xs tracking-wider text-bone-muted uppercase">
-              <tr>
-                <th className="px-4 py-3">Nombre</th>
-                <th className="px-4 py-3">Rol</th>
-                <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-bone-muted">
-                    Cargando…
-                  </td>
-                </tr>
-              )}
-              {!loading && employees.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-bone-muted">
-                    Sin empleados registrados
-                  </td>
-                </tr>
-              )}
-              {employees.map((employee) => (
-                <tr key={employee.id} className="border-b border-white/5">
-                  <td className="px-4 py-3 font-semibold">{employee.full_name}</td>
-                  <td className="px-4 py-3 text-bone-muted">
-                    {ROLES.find((r) => r.value === employee.role)?.label ?? employee.role}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={employee.is_active ? 'text-jade-400' : 'text-emberred-400'}>
-                      {employee.is_active ? 'Activo' : 'Inactivo'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <TouchButton
-                      variant={employee.is_active ? 'secondary' : 'primary'}
-                      onClick={() => toggle(employee.id)}
-                      className="min-h-0 rounded-lg px-3 py-2 text-xs"
-                    >
-                      {employee.is_active ? 'Desactivar' : 'Activar'}
-                    </TouchButton>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+      <main className="flex-1 p-4 md:p-5">
+        {tab === 'menu' && <MenuPanel adminPin={adminPin} />}
+        {tab === 'inventory' && <InventoryPanel adminPin={adminPin} />}
+        {tab === 'employees' && <EmployeesPanel adminPin={adminPin} />}
       </main>
     </div>
   )

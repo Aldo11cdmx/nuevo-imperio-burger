@@ -1,19 +1,27 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Loader2, Minus, Plus, Send, Trash2 } from 'lucide-react'
+import { AlertTriangle, Loader2, Minus, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
 import ScreenHeader from '../components/ScreenHeader'
 import Toast from '../components/Toast'
 import TouchButton from '../components/TouchButton'
-import { CATEGORIES, PRODUCTS, getGradient, isPriced } from '../data/products'
+import { getGradient } from '../data/categories'
 import { PRICES_INCLUDE_TAX, formatMXN, round2 } from '../lib/format'
 import supabase from '../lib/supabase'
 import { useAuthStore } from '../store/useAuthStore'
 import { useCartStore } from '../store/useCartStore'
+import { selectCategories, useProductStore } from '../store/useProductStore'
 
 export default function POS() {
   const [category, setCategory] = useState('all')
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState(null)
+
+  const products = useProductStore((state) => state.products)
+  const loadProducts = useProductStore((state) => state.load)
+  const subscribeProducts = useProductStore((state) => state.subscribe)
+  const catalogLoading = useProductStore((state) => state.loading)
+  const catalogError = useProductStore((state) => state.error)
+  const catalogLoaded = useProductStore((state) => state.loaded)
 
   const employee = useAuthStore((state) => state.employee)
   const {
@@ -34,11 +42,18 @@ export default function POS() {
   // El toast anuncia unidades porque es lo que el cliente acaba de pagar.
   const { subtotal, tax, total, itemCount, unitCount } = totals()
 
+  useEffect(() => {
+    loadProducts()
+    return subscribeProducts()
+  }, [loadProducts, subscribeProducts])
+
   const dismissToast = useCallback(() => setToast(null), [])
 
+  const categories = useMemo(() => selectCategories(products), [products])
+
   const visibleProducts = useMemo(
-    () => (category === 'all' ? PRODUCTS : PRODUCTS.filter((product) => product.category === category)),
-    [category],
+    () => (category === 'all' ? products : products.filter((product) => product.category === category)),
+    [category, products],
   )
 
   const sendToKitchen = async () => {
@@ -72,6 +87,10 @@ export default function POS() {
     const { error: itemsError } = await supabase.from('order_items').insert(
       lines.map((line) => ({
         order_id: order.id,
+        // product_id nullable: una línea de Extras sin equivalente en la carta, o un
+        // producto que el admin borró después, se guardan igual y solo quedan fuera
+        // del Top-5. product_name sigue siendo la foto histórica del nombre.
+        product_id: line.productId,
         product_name: line.name,
         quantity: line.quantity,
         price: round2(line.price),
@@ -118,7 +137,7 @@ export default function POS() {
             >
               Todos
             </TouchButton>
-            {CATEGORIES.map((item) => (
+            {categories.map((item) => (
               <TouchButton
                 key={item.id}
                 variant={category === item.id ? 'primary' : 'secondary'}
@@ -130,49 +149,88 @@ export default function POS() {
             ))}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-            {visibleProducts.map((product) => {
-              const priced = isPriced(product)
+          {catalogError && !catalogLoaded ? (
+            <div
+              role="alert"
+              className="flex flex-col items-center gap-3 rounded-3xl border border-emberred-500/40 bg-emberred-500/10 px-6 py-12 text-center"
+            >
+              <AlertTriangle size={32} className="text-emberred-400" />
+              <div>
+                <p className="font-semibold">No se pudo cargar la carta</p>
+                <p className="mt-1 text-sm text-bone-muted">
+                  Sin la carta no se puede cobrar. Revisa la conexión y reintenta.
+                </p>
+              </div>
+              <TouchButton
+                variant="secondary"
+                onClick={() => loadProducts({ force: true })}
+                disabled={catalogLoading}
+              >
+                {catalogLoading ? <Loader2 className="animate-spin" size={18} /> : <RefreshCw size={18} />}
+                Reintentar
+              </TouchButton>
+            </div>
+          ) : catalogLoading && !catalogLoaded ? (
+            <p className="py-20 text-center text-bone-muted">Cargando carta…</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+              {visibleProducts.map((product) => {
+                // Agotado significa que el stock llegó a cero Y el producto sí lo
+                // controla. Un producto sin control de stock nunca se deshabilita,
+                // porque su `stock` es 0 siempre.
+                const soldOut = product.tracks_stock && product.stock <= 0
+                const low = product.tracks_stock && !soldOut && product.stock <= product.low_stock_threshold
 
-              return (
-                <button
-                  key={product.id}
-                  type="button"
-                  disabled={!priced}
-                  onClick={() => addItem(product)}
-                  className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-ink-800/70 text-left transition-[transform,border-color,opacity] duration-100 active:scale-[0.97] active:border-saffron-400/50 disabled:opacity-45"
-                >
-                  {/* Sin backdrop-blur: desenfuntar una cuadrícula entera hunde los
-                      frames en las tablets Android. El degradado hace de foto. */}
-                  <span
-                    className={`flex h-20 items-center justify-center bg-gradient-to-br ${getGradient(product)}`}
+                return (
+                  <button
+                    key={product.id}
+                    type="button"
+                    disabled={soldOut}
+                    onClick={() => addItem(product)}
+                    title={soldOut ? 'Agotado' : product.name}
+                    className="relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-ink-800/70 text-left transition-[transform,border-color,opacity] duration-100 active:scale-[0.97] active:border-saffron-400/50 disabled:opacity-45"
                   >
-                    {product.image ? (
-                      <img
-                        src={product.image}
-                        alt=""
-                        loading="lazy"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <span className="font-display text-3xl font-bold text-white/85">
-                        {product.name.charAt(0)}
+                    {/* Sin backdrop-blur: desenfuntar una cuadrícula entera hunde los
+                        frames en las tablets Android. El degradado hace de foto. */}
+                    <span
+                      className={`flex h-20 items-center justify-center bg-gradient-to-br ${getGradient(product.category)}`}
+                    >
+                      {product.image_url ? (
+                        <img
+                          src={product.image_url}
+                          alt=""
+                          loading="lazy"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="font-display text-3xl font-bold text-white/85">
+                          {product.name.charAt(0)}
+                        </span>
+                      )}
+                    </span>
+
+                    {soldOut && (
+                      <span className="absolute inset-x-0 top-0 bg-ink-950/85 py-1 text-center text-xs font-bold tracking-wider text-emberred-400 uppercase">
+                        Agotado
                       </span>
                     )}
-                  </span>
+                    {!soldOut && low && (
+                      <span className="absolute right-1.5 top-1.5 rounded-full bg-saffron-400 px-2 py-0.5 text-[0.65rem] font-bold text-ink-950">
+                        Quedan {product.stock}
+                      </span>
+                    )}
 
-                  <span className="flex flex-1 flex-col justify-between p-3">
-                    <span className="text-sm leading-tight font-semibold">{product.name}</span>
-                    <span
-                      className={`mt-2 font-ticket text-base font-bold ${priced ? 'text-saffron-400' : 'text-bone-faint'}`}
-                    >
-                      {priced ? formatMXN(product.price) : 'Sin precio'}
+                    <span className="flex flex-1 flex-col justify-between p-3">
+                      <span className="text-sm leading-tight font-semibold">{product.name}</span>
+                      <span className="mt-2 font-ticket text-base font-bold text-saffron-400">
+                        {formatMXN(product.price)}
+                      </span>
                     </span>
-                  </span>
-                </button>
-              )
-            })}
-          </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </section>
 
         <aside className="relative flex flex-col self-start lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)]">
