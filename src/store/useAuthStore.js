@@ -3,6 +3,13 @@ import supabase from '../lib/supabase'
 
 export const useAuthStore = create((set) => ({
   employee: null,
+  // El PIN se guarda SOLO en memoria, nunca en localStorage ni en sessionStorage.
+  // No esSession: el proyecto no usa Supabase Auth, así que open_shift, close_shift,
+  // create_order y complete_order revalidan el PIN en cada llamada. Sin guardarlo, no
+  // habría forma de volver a autorizar una venta ya abierta en la tablet.
+  // El costo es explícito: el PIN queda accesible a cualquier script de la página.
+  // Por eso el bundle no guarda nada y cerrar sesión lo borra.
+  pin: null,
   loading: false,
   error: null,
 
@@ -34,11 +41,11 @@ export const useAuthStore = create((set) => ({
     }
 
     const employee = { id: result.id, full_name: result.full_name, role: result.role }
-    set({ employee, loading: false, error: null })
+    set({ employee, pin, loading: false, error: null })
     return { data: employee, error: null }
   },
 
-  signOut: () => set({ employee: null, error: null, loading: false }),
+  signOut: () => set({ employee: null, pin: null, error: null, loading: false }),
 
   /** Limpia el mensaje de error al empezar a teclear de nuevo. */
   clearError: () => set({ error: null }),

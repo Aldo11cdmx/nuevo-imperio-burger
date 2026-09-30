@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Loader2, Minus, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
+import { AlertTriangle, Loader2, Minus, Plus, RefreshCw, Send, Trash2, Wallet } from 'lucide-react'
 import ScreenHeader from '../components/ScreenHeader'
 import Toast from '../components/Toast'
 import TouchButton from '../components/TouchButton'
 import { getGradient } from '../data/categories'
-import { PRICES_INCLUDE_TAX, formatMXN, round2 } from '../lib/format'
+import { PRICES_INCLUDE_TAX, formatMXN } from '../lib/format'
 import supabase from '../lib/supabase'
 import { useAuthStore } from '../store/useAuthStore'
 import { useCartStore } from '../store/useCartStore'
 import { selectCategories, useProductStore } from '../store/useProductStore'
+import { useShiftStore } from '../store/useShiftStore'
 
 export default function POS() {
   const [category, setCategory] = useState('all')
@@ -24,6 +25,9 @@ export default function POS() {
   const catalogLoaded = useProductStore((state) => state.loaded)
 
   const employee = useAuthStore((state) => state.employee)
+  const pin = useAuthStore((state) => state.pin)
+  const shift = useShiftStore((state) => state.shift)
+  const loadMyShift = useShiftStore((state) => state.loadMyShift)
   const {
     lines,
     customerName,
@@ -47,6 +51,12 @@ export default function POS() {
     return subscribeProducts()
   }, [loadProducts, subscribeProducts])
 
+  // Al entrar al POS se busca el turno abierto. El servidor no lo entrega en la carga del
+  // catálogo, y sin él el botón de enviar queda inútil sin avisar por qué.
+  useEffect(() => {
+    if (employee && pin) loadMyShift()
+  }, [employee, pin, loadMyShift])
+
   const dismissToast = useCallback(() => setToast(null), [])
 
   const categories = useMemo(() => selectCategories(products), [products])
@@ -61,22 +71,34 @@ export default function POS() {
       setToast({ tone: 'error', title: 'Sin sesión iniciada', detail: 'Ingresa con tu PIN para enviar la orden.' })
       return
     }
+    // El servidor rechaza create_order sin turno abierto, pero avisar aquí evita el viaje y
+    // le dice al cajero qué hacer en vez de un error genérico.
+    if (!shift) {
+      setToast({
+        tone: 'error',
+        title: 'No hay caja abierta',
+        detail: 'Abre tu turno en Caja antes de enviar la orden.',
+      })
+      return
+    }
     if (lines.length === 0 || submitting) return
 
     setSubmitting(true)
 
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert({
-        created_by: employee.id,
-        table_number: tableNumber,
-        customer_name: customerName.trim() || null,
-        subtotal: round2(subtotal),
-        tax: round2(tax),
-        total: round2(total),
-      })
-      .select('id, code')
-      .single()
+    // El carrito se manda por product_id y nada más. El precio, el IVA y el stock los
+    // calcula el servidor leyendo products: si la tablet tuviera abierto el precio, la
+    // cuenta de la gaveta no cuadraría con lo que el cliente pagó.
+    const { data, error: orderError } = await supabase.rpc('create_order', {
+      p_pin: pin,
+      p_shift_id: shift.id,
+      p_table_number: tableNumber,
+      p_customer_name: customerName.trim() || null,
+      p_items: lines.map((line) => ({
+        product_id: line.productId,
+        quantity: line.quantity,
+        notes: line.notes.trim() || null,
+      })),
+    })
 
     if (orderError) {
       setSubmitting(false)
@@ -84,30 +106,10 @@ export default function POS() {
       return
     }
 
-    const { error: itemsError } = await supabase.from('order_items').insert(
-      lines.map((line) => ({
-        order_id: order.id,
-        // product_id nullable: una línea de Extras sin equivalente en la carta, o un
-        // producto que el admin borró después, se guardan igual y solo quedan fuera
-        // del Top-5. product_name sigue siendo la foto histórica del nombre.
-        product_id: line.productId,
-        product_name: line.name,
-        quantity: line.quantity,
-        price: round2(line.price),
-        notes: line.notes.trim() || null,
-      })),
-    )
-
-    if (itemsError) {
-      // Una orden sin productos llegaría a cocina como un ticket vacío. Se anula para
-      // que no se cocine nada: mejor un fallo visible que un pedido sin contenido.
-      await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id)
+    const order = Array.isArray(data) ? data[0] : data
+    if (!order) {
       setSubmitting(false)
-      setToast({
-        tone: 'error',
-        title: `Orden #${order.code} anulada`,
-        detail: 'No se pudieron guardar los productos. Inténtalo de nuevo.',
-      })
+      setToast({ tone: 'error', title: 'PIN no reconocido', detail: 'Ingresa de nuevo con tu PIN.' })
       return
     }
 
@@ -116,7 +118,7 @@ export default function POS() {
     setToast({
       tone: 'success',
       title: `Orden #${order.code} enviada a cocina`,
-      detail: `${unitCount} ${unitCount === 1 ? 'producto' : 'productos'} · ${formatMXN(total)}`,
+      detail: `${unitCount} ${unitCount === 1 ? 'producto' : 'productos'}`,
     })
   }
 
@@ -252,6 +254,28 @@ export default function POS() {
               </Link>
             )}
 
+            {employee && !shift && (
+              <Link
+                to="/caja"
+                className="mb-3 flex items-center gap-2 rounded-xl border border-saffron-400/40 bg-saffron-400/10 px-3 py-2.5 text-sm font-medium text-saffron-400"
+              >
+                <Wallet size={16} />
+                Sin caja abierta. Ábrela para poder cobrar
+              </Link>
+            )}
+
+            {shift && (
+              <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-ink-900/50 px-3 py-2 text-xs">
+                <span className="text-bone-muted">
+                  Fondo <span className="font-ticket font-bold text-bone">{formatMXN(shift.opening_float)}</span>
+                </span>
+                <span className="text-bone-muted">
+                  Vendido{' '}
+                  <span className="font-ticket font-bold text-jade-300">{formatMXN(shift.total_sales)}</span>
+                </span>
+              </div>
+            )}
+
             <h2 className="mb-3 text-xs font-semibold tracking-[0.2em] text-bone-muted uppercase">Cuenta</h2>
 
             <div className="mb-3 grid grid-cols-[86px_1fr] gap-2">
@@ -350,7 +374,7 @@ export default function POS() {
               <TouchButton
                 className="flex-[2]"
                 onClick={sendToKitchen}
-                disabled={lines.length === 0 || submitting || !employee}
+                disabled={lines.length === 0 || submitting || !employee || !shift}
               >
                 {submitting ? (
                   <>

@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import supabase from '../lib/supabase'
+import { useAuthStore } from './useAuthStore'
+import { useShiftStore } from './useShiftStore'
 
 export const ORDER_STATUS = {
   PENDING: 'pending',
@@ -49,7 +51,10 @@ export const useOrderStore = create((set, get) => ({
     return data ?? []
   },
 
-  /** pending → in_kitchen → ready → served. No mueve a completed: eso exige cobro. */
+  /**
+   * pending → in_kitchen → ready → served. No mueve a completed: eso exige cobro, y el
+   * cobro es la única transición que necesita turno y PIN.
+   */
   advanceOrder: async (orderId) => {
     const current = get().orders.find((order) => order.id === orderId)
     if (!current) return
@@ -66,26 +71,93 @@ export const useOrderStore = create((set, get) => ({
       return
     }
 
-    await get().patchOrder(orderId, {
-      status: ORDER_STATUS.COMPLETED,
-      payment_method: paymentMethod,
-      paid_at: new Date().toISOString(),
-    })
-  },
+    // El turno se resuelve antes de tocar la red: sin gaveta abierta el servidor lo va a
+    // rechazar igual, y es más barato no gastar el viaje.
+    const { pin } = useAuthStore.getState()
+    const shift = useShiftStore.getState().shift
+    if (!shift) {
+      set({ error: 'No hay una caja abierta. Abre tu turno en Caja antes de cobrar.' })
+      return
+    }
 
-  cancelOrder: async (orderId) => {
-    await get().patchOrder(orderId, { status: ORDER_STATUS.CANCELLED })
-  },
-
-  patchOrder: async (orderId, patch) => {
     set({ busyOrderId: orderId, error: null })
 
-    const { data, error } = await supabase
-      .from('orders')
-      .update(patch)
-      .eq('id', orderId)
-      .select()
-      .single()
+    const { data, error } = await supabase.rpc('complete_order', {
+      p_order_id: orderId,
+      p_pin: pin,
+      p_shift_id: shift.id,
+      p_payment_method: paymentMethod,
+    })
+
+    if (error) {
+      set({ busyOrderId: null, error: error.message })
+      return
+    }
+
+    // La RPC devuelve NULL, no un error, cuando el PIN no cuadra: es el mismo camino que
+    // usa el rate limit, y abortar la transacción tiraría el contador.
+    if (!data) {
+      set({ busyOrderId: null, error: 'PIN no reconocido' })
+      return
+    }
+
+    set((state) => ({
+      busyOrderId: null,
+      orders: state.orders.filter((order) => order.id !== orderId),
+    }))
+
+    // El corte X cambia con cada cobro. Se relee para que el fondo de la gaveta no quede
+    // mostrando la venta anterior.
+    useShiftStore.getState().refreshTotals()
+  },
+
+  cancelOrder: async (orderId, reason, adminPin = null) => {
+    if (!reason || !reason.trim()) {
+      set({ error: 'Escribe el motivo de la anulación' })
+      return
+    }
+
+    set({ busyOrderId: orderId, error: null })
+
+    const { data, error } = await supabase.rpc('cancel_order', {
+      p_order_id: orderId,
+      p_reason: reason.trim(),
+      p_admin_pin: adminPin,
+    })
+
+    if (error) {
+      set({ busyOrderId: null, error: error.message })
+      return
+    }
+
+    // null acá significa que la orden ya estaba cobrada y el PIN de admin no pasó. No es
+    // un error de servidor: es una decisión de negocio, y la UI tiene que poder pedir el
+    // PIN y reintentar.
+    if (!data) {
+      set({ busyOrderId: null, error: 'Se necesita PIN de administrador para anular una venta cobrada' })
+      return
+    }
+
+    set((state) => ({
+      busyOrderId: null,
+      orders: state.orders.filter((order) => order.id !== orderId),
+    }))
+
+    useShiftStore.getState().refreshTotals()
+  },
+
+  /**
+   * Toda mutación pasa por una RPC. Ya no hay .insert() ni .update() sobre orders: desde la
+   * migración de cierre de escritura directa, anon no tiene permiso, y aunque lo tuviera
+   * el precio y el stock los calcula el servidor.
+   */
+  patchOrder: async (orderId, { status }) => {
+    set({ busyOrderId: orderId, error: null })
+
+    const { data, error } = await supabase.rpc('advance_order', {
+      p_order_id: orderId,
+      p_to_status: status,
+    })
 
     if (error) {
       set({ busyOrderId: null, error: error.message })
@@ -94,9 +166,10 @@ export const useOrderStore = create((set, get) => ({
 
     set((state) => ({
       busyOrderId: null,
-      // Al cobrarse o anularse, la orden sale del tablero.
-      orders: OPEN_STATUSES.includes(data.status)
-        ? state.orders.map((order) => (order.id === orderId ? { ...order, ...data } : order))
+      // Al cobrarse o anularse, la orden sale del tablero. advance_order nunca deja la
+      // orden fuera de la lista: completed solo lo alcanza complete_order.
+      orders: OPEN_STATUSES.includes(data)
+        ? state.orders.map((order) => (order.id === orderId ? { ...order, status: data } : order))
         : state.orders.filter((order) => order.id !== orderId),
     }))
   },
