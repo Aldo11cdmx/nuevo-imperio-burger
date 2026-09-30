@@ -102,7 +102,7 @@ insert into public.products (slug, name, price, category, sort_order, tracks_sto
   ('combo-gante', 'Hamburguesa Gante+Papas+Soda', 80.00, 'combos', 5045, false),
   ('combo-urburger', 'Urburger+Papas+Soda', 50.00, 'combos', 5046, false),
   ('combo-papas-refresco', 'Papas Francesa+Refresco', 45.00, 'combos', 5047, false),
-  ('malteadas', 'Malteadas', 50.00, 'bebidas', 6048, true),
+  ('malteadas', 'Malteadas', 40.00, 'bebidas', 6048, true),
   ('boing', 'Boing', 25.00, 'bebidas', 6049, true),
   ('coca-cola', 'Coca Cola', 25.00, 'bebidas', 6050, true),
   ('coca-cola-media', 'Coca-cola 1/2', 30.00, 'bebidas', 6051, true),
