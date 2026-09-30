@@ -11,6 +11,9 @@ const ROLES = [
   { value: 'admin', label: 'Administrador' },
 ]
 
+const INPUT =
+  'w-full rounded-xl border border-white/10 bg-ink-800/70 px-4 py-3 outline-none transition-colors focus:border-saffron-400/60'
+
 export default function Admin() {
   const [adminPin, setAdminPin] = useState('')
   const [pinInput, setPinInput] = useState('')
@@ -115,10 +118,10 @@ export default function Admin() {
 
   if (!adminPin) {
     return (
-      <div className="flex min-h-screen flex-col">
+      <div className="flex min-h-dvh flex-col">
         <ScreenHeader title="Administración" subtitle="Autorización requerida" />
         <form onSubmit={authorize} className="m-auto w-full max-w-xs space-y-3 px-6">
-          <div className="flex items-center gap-2 text-sm text-ash-500">
+          <div className="flex items-center gap-2 text-sm text-bone-muted">
             <KeyRound size={18} />
             Ingresa el PIN de un administrador
           </div>
@@ -129,9 +132,9 @@ export default function Admin() {
             inputMode="numeric"
             maxLength={4}
             required
-            className="w-full rounded-lg bg-carbon-800 px-4 py-3 text-center text-2xl tracking-[0.5em] outline-none focus:ring-2 focus:ring-ember-500"
+            className={`${INPUT} text-center font-ticket text-2xl tracking-[0.5em]`}
           />
-          {error && <p className="text-center text-sm text-red-400">{error}</p>}
+          {error && <p className="text-center text-sm text-emberred-400">{error}</p>}
           <TouchButton type="submit" className="w-full">
             Autorizar
           </TouchButton>
@@ -141,12 +144,12 @@ export default function Admin() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-dvh flex-col">
       <ScreenHeader
         title="Administración"
         subtitle="Empleados y accesos"
         right={
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2">
             <TouchButton variant="secondary" onClick={() => load(adminPin)} disabled={loading}>
               <RefreshCw size={18} />
             </TouchButton>
@@ -157,22 +160,23 @@ export default function Admin() {
         }
       />
 
-      <main className="grid flex-1 grid-cols-1 gap-6 p-6 lg:grid-cols-[420px_1fr]">
-        <form onSubmit={create} className="h-fit space-y-3 rounded-xl bg-carbon-900 p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-ash-500">
-            Nuevo empleado
-          </h2>
+      <main className="grid flex-1 grid-cols-1 gap-5 p-4 md:p-5 lg:grid-cols-[400px_1fr]">
+        <form
+          onSubmit={create}
+          className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-glass-sm"
+        >
+          <h2 className="text-xs font-semibold tracking-[0.2em] text-bone-muted uppercase">Nuevo empleado</h2>
           <input
             value={form.full_name}
             onChange={(event) => setForm({ ...form, full_name: event.target.value })}
             placeholder="Nombre completo"
             required
-            className="w-full rounded-lg bg-carbon-800 px-4 py-3 outline-none focus:ring-2 focus:ring-ember-500"
+            className={INPUT}
           />
           <select
             value={form.role}
             onChange={(event) => setForm({ ...form, role: event.target.value })}
-            className="w-full rounded-lg bg-carbon-800 px-4 py-3 outline-none focus:ring-2 focus:ring-ember-500"
+            className={INPUT}
           >
             {ROLES.map((role) => (
               <option key={role.value} value={role.value}>
@@ -187,17 +191,17 @@ export default function Admin() {
             inputMode="numeric"
             maxLength={4}
             required
-            className="w-full rounded-lg bg-carbon-800 px-4 py-3 text-center text-xl tracking-[0.4em] outline-none focus:ring-2 focus:ring-ember-500"
+            className={`${INPUT} text-center font-ticket text-xl tracking-[0.4em]`}
           />
           <TouchButton type="submit" className="w-full">
             <Plus size={18} /> Crear
           </TouchButton>
         </form>
 
-        <section className="overflow-hidden rounded-xl bg-carbon-900">
-          {error && <p className="p-4 text-sm text-red-400">{error}</p>}
+        <section className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.06] shadow-glass-sm">
+          {error && <p className="p-4 text-sm text-emberred-400">{error}</p>}
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-carbon-700 text-ash-500">
+            <thead className="border-b border-white/10 text-xs tracking-wider text-bone-muted uppercase">
               <tr>
                 <th className="px-4 py-3">Nombre</th>
                 <th className="px-4 py-3">Rol</th>
@@ -208,24 +212,26 @@ export default function Admin() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-ash-500">
+                  <td colSpan={4} className="px-4 py-8 text-center text-bone-muted">
                     Cargando…
                   </td>
                 </tr>
               )}
               {!loading && employees.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-ash-500">
+                  <td colSpan={4} className="px-4 py-8 text-center text-bone-muted">
                     Sin empleados registrados
                   </td>
                 </tr>
               )}
               {employees.map((employee) => (
-                <tr key={employee.id} className="border-b border-carbon-800">
+                <tr key={employee.id} className="border-b border-white/5">
                   <td className="px-4 py-3 font-semibold">{employee.full_name}</td>
-                  <td className="px-4 py-3">{ROLES.find((r) => r.value === employee.role)?.label ?? employee.role}</td>
+                  <td className="px-4 py-3 text-bone-muted">
+                    {ROLES.find((r) => r.value === employee.role)?.label ?? employee.role}
+                  </td>
                   <td className="px-4 py-3">
-                    <span className={employee.is_active ? 'text-emerald-400' : 'text-red-400'}>
+                    <span className={employee.is_active ? 'text-jade-400' : 'text-emberred-400'}>
                       {employee.is_active ? 'Activo' : 'Inactivo'}
                     </span>
                   </td>
@@ -233,7 +239,7 @@ export default function Admin() {
                     <TouchButton
                       variant={employee.is_active ? 'secondary' : 'primary'}
                       onClick={() => toggle(employee.id)}
-                      className="min-h-0 px-3 py-2 text-xs"
+                      className="min-h-0 rounded-lg px-3 py-2 text-xs"
                     >
                       {employee.is_active ? 'Desactivar' : 'Activar'}
                     </TouchButton>

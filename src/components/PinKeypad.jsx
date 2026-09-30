@@ -24,7 +24,7 @@ export default function PinKeypad({ onDigit, onClear, onBackspace, disabled = fa
             }}
             aria-label={label}
             // h-[clamp] mantiene el objetivo táctil cómodo en tablet y en móvil estrecho.
-            className="h-[clamp(4.5rem,13vh,7rem)] text-[clamp(1.75rem,5vh,2.5rem)] font-bold"
+            className="h-[clamp(4.5rem,13vh,7rem)] font-ticket text-[clamp(1.75rem,5vh,2.5rem)] font-bold"
           >
             {key === 'clear' ? <Eraser size={30} /> : key === 'back' ? <Delete size={30} /> : key}
           </TouchButton>

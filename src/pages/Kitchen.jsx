@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import ScreenHeader from '../components/ScreenHeader'
 import TouchButton from '../components/TouchButton'
+import { formatMXN } from '../lib/format'
 import { ORDER_STATUS, PAYMENT_METHODS, useOrderStore } from '../store/useOrderStore'
 
 const NEXT_LABEL = {
@@ -11,10 +12,10 @@ const NEXT_LABEL = {
 }
 
 const STATUS_STYLE = {
-  [ORDER_STATUS.PENDING]: 'bg-ash-500',
-  [ORDER_STATUS.IN_KITCHEN]: 'bg-ember-500',
-  [ORDER_STATUS.READY]: 'bg-emerald-500',
-  [ORDER_STATUS.SERVED]: 'bg-sky-400',
+  [ORDER_STATUS.PENDING]: 'bg-bone-faint',
+  [ORDER_STATUS.IN_KITCHEN]: 'bg-saffron-400',
+  [ORDER_STATUS.READY]: 'bg-jade-500',
+  [ORDER_STATUS.SERVED]: 'bg-saffron-300',
 }
 
 const STATUS_LABEL = {
@@ -30,37 +31,54 @@ const PAYMENT_LABEL = {
   transfer: 'Transferencia',
 }
 
+/** Minutos transcurridos desde que se envió la orden, para priorizar en el tablero. */
+function minutesSince(iso) {
+  if (!iso) return null
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000))
+}
+
 function OrderCard({ order, busy, onAdvance, onComplete, onCancel }) {
   const [paymentMethod, setPaymentMethod] = useState('cash')
   const isServed = order.status === ORDER_STATUS.SERVED
+  const minutes = minutesSince(order.created_at)
+  const isLate = minutes !== null && minutes >= 15
 
   return (
-    <article className="flex flex-col rounded-xl bg-carbon-900 p-4">
-      <header className="mb-3 flex items-center justify-between">
+    <article className="flex flex-col rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-glass-sm">
+      <header className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <p className="text-lg font-bold">#{order.code}</p>
-          <p className="text-xs text-ash-500">
+          <p className="font-ticket text-lg font-bold text-saffron-400">#{order.code}</p>
+          <p className="text-xs text-bone-muted">
             {order.customer_name ?? 'Mostrador'}
             {order.table_number ? ` · Mesa ${order.table_number}` : ''}
           </p>
+          {minutes !== null && (
+            <p className={`mt-1 font-ticket text-xs ${isLate ? 'text-emberred-400' : 'text-bone-faint'}`}>
+              {isLate && '⚠ '}
+              {minutes} min
+            </p>
+          )}
         </div>
         <span
-          className={`rounded-full px-3 py-1 text-xs font-semibold text-carbon-950 ${STATUS_STYLE[order.status] ?? 'bg-ash-500'}`}
+          className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold text-ink-950 ${STATUS_STYLE[order.status] ?? 'bg-bone-faint'}`}
         >
           {STATUS_LABEL[order.status] ?? order.status}
         </span>
       </header>
 
-      <ul className="mb-4 flex-1 space-y-1 text-sm">
+      <ul className="mb-4 flex-1 space-y-1.5 text-sm">
         {(order.order_items ?? []).map((item) => (
-          <li key={item.id} className="flex justify-between gap-2">
-            <span>
-              {item.quantity}× {item.product_name}
-            </span>
-            {item.notes && <span className="text-xs text-ember-500">{item.notes}</span>}
+          <li key={item.id} className="flex items-baseline gap-2">
+            <span className="font-ticket font-bold text-saffron-400">{item.quantity}×</span>
+            <span className="min-w-0 flex-1">{item.product_name}</span>
+            {item.notes && <span className="text-xs text-bone-muted italic">{item.notes}</span>}
           </li>
         ))}
       </ul>
+
+      <p className="mb-3 border-t border-dashed border-white/15 pt-2 text-right font-ticket text-sm font-bold">
+        {formatMXN(order.total)}
+      </p>
 
       {isServed && (
         <div className="mb-3 flex gap-2">
@@ -78,20 +96,11 @@ function OrderCard({ order, busy, onAdvance, onComplete, onCancel }) {
       )}
 
       <div className="flex gap-2">
-        <TouchButton
-          variant="secondary"
-          className="px-4"
-          disabled={busy}
-          onClick={() => onCancel(order.id)}
-        >
+        <TouchButton variant="secondary" className="px-4" disabled={busy} onClick={() => onCancel(order.id)}>
           Anular
         </TouchButton>
         {isServed ? (
-          <TouchButton
-            className="flex-1"
-            disabled={busy}
-            onClick={() => onComplete(order.id, paymentMethod)}
-          >
+          <TouchButton className="flex-1" disabled={busy} onClick={() => onComplete(order.id, paymentMethod)}>
             {NEXT_LABEL[ORDER_STATUS.SERVED]}
           </TouchButton>
         ) : (
@@ -118,14 +127,14 @@ export default function Kitchen() {
   }, [fetchOpenOrders, subscribe])
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-dvh flex-col">
       <ScreenHeader title="Cocina" subtitle={`${orders.length} órdenes abiertas`} />
 
-      <main className="flex-1 space-y-4 p-6">
-        {error && <p className="text-sm text-red-400">{error}</p>}
-        {loading && orders.length === 0 && <p className="text-ash-500">Cargando órdenes…</p>}
+      <main className="flex-1 space-y-4 p-4 md:p-5">
+        {error && <p className="text-sm text-emberred-400">{error}</p>}
+        {loading && orders.length === 0 && <p className="text-bone-muted">Cargando órdenes…</p>}
         {!loading && orders.length === 0 && (
-          <p className="py-20 text-center text-ash-500">Sin órdenes pendientes</p>
+          <p className="py-20 text-center text-bone-muted">Sin órdenes pendientes</p>
         )}
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
