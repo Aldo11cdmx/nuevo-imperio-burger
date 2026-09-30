@@ -82,11 +82,22 @@ export const useCartStore = create((set, get) => ({
    * Los precios del menú ya traen el IVA, igual que la carta. Por eso el total es la
    * suma simple y el impuesto se guarda en 0. Si algún día se carga el precio sin IVA,
    * basta con poner PRICES_INCLUDE_TAX en false en src/lib/format.js.
+   *
+   * `itemCount` son renglones del ticket y `unitCount` son unidades cobradas. No son lo
+   * mismo: como `addItem` funde toques repetidos del mismo producto, tres hamburguesas
+   * iguales ocupan un renglón y son tres unidades. Confundirlos hacía que el toast de
+   * confirmación anunciara "1 producto" tras vender tres.
    */
   totals: () => {
     const { lines } = get()
     const subtotal = lines.reduce((sum, line) => sum + line.price * line.quantity, 0)
     const tax = PRICES_INCLUDE_TAX ? 0 : subtotal * TAX_RATE
-    return { subtotal: round2(subtotal), tax: round2(tax), total: round2(subtotal + tax), itemCount: lines.length }
+    return {
+      subtotal: round2(subtotal),
+      tax: round2(tax),
+      total: round2(subtotal + tax),
+      itemCount: lines.length,
+      unitCount: lines.reduce((sum, line) => sum + line.quantity, 0),
+    }
   },
 }))

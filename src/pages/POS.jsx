@@ -30,7 +30,9 @@ export default function POS() {
     clear,
     totals,
   } = useCartStore()
-  const { subtotal, tax, total, itemCount } = totals()
+  // itemCount son renglones del ticket ("N líneas"); unitCount son unidades cobradas.
+  // El toast anuncia unidades porque es lo que el cliente acaba de pagar.
+  const { subtotal, tax, total, itemCount, unitCount } = totals()
 
   const dismissToast = useCallback(() => setToast(null), [])
 
@@ -95,7 +97,7 @@ export default function POS() {
     setToast({
       tone: 'success',
       title: `Orden #${order.code} enviada a cocina`,
-      detail: `${itemCount} ${itemCount === 1 ? 'producto' : 'productos'} · ${formatMXN(total)}`,
+      detail: `${unitCount} ${unitCount === 1 ? 'producto' : 'productos'} · ${formatMXN(total)}`,
     })
   }
 

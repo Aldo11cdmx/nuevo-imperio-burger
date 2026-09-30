@@ -3,23 +3,40 @@
 @tailwind utilities;
 
 @layer base {
+  /* El color base va en html, no en body. Body lo propagaría al canvas igual, pero
+     entonces body::before quedaría por detrás si alguien añadiera después un fondo a
+     <html> y los halos desaparecerían sin aviso. Con el color en html el orden de
+     pintado queda garantizado: canvas opaco, luego los halos, luego el contenido. */
   html {
     -webkit-tap-highlight-color: transparent;
+    @apply bg-ink-950;
   }
 
   body {
-    @apply bg-ink-950 font-sans text-bone antialiased;
+    @apply font-sans text-bone antialiased;
 
-    /* El glassmorphism solo se percibe si hay algo detrás que difuminar. Estos halos
-       cálidos anclan la escena y dan a `backdrop-blur` algo que refractar. */
+    /* Evita el rebote de scroll al arrastrar en pantallas táctiles, sin quitar scroll. */
+    overscroll-behavior-y: none;
+  }
+
+  /* El glassmorphism solo se percibe si hay algo detrás que difuminar. Estos halos
+     cálidos anclan la escena y dan a `backdrop-blur` algo que refractar.
+
+     Van en una capa fija propia en vez de `background-attachment: fixed`: eso último
+     pone los gradientes a pantalla completa en la ruta de repintado de cada frame de
+     scroll, y el `backdrop-blur` de la cabecera sticky tiene que re-muestrearla en cada
+     uno. Así el navegador lo compila una vez y nunca lo repinta al desplazar, que es
+     justo lo que hunde los frames en las tablets Android de gama baja. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
     background-image:
       radial-gradient(60rem 42rem at 10% -12%, rgba(222, 143, 30, 0.12), transparent 60%),
       radial-gradient(52rem 38rem at 94% 6%, rgba(214, 69, 42, 0.09), transparent 62%),
       radial-gradient(48rem 36rem at 52% 112%, rgba(240, 168, 48, 0.07), transparent 60%);
-    background-attachment: fixed;
-
-    /* Evita el rebote de scroll al arrastrar en pantallas táctiles, sin quitar scroll. */
-    overscroll-behavior-y: none;
   }
 
   button {

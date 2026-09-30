@@ -31,16 +31,21 @@ const PAYMENT_LABEL = {
   transfer: 'Transferencia',
 }
 
-/** Minutos transcurridos desde que se envió la orden, para priorizar en el tablero. */
-function minutesSince(iso) {
+/**
+ * Minutos transcurridos desde que se envió la orden, para priorizar en el tablero.
+ * Recibe `now` desde el padre en vez de llamar a Date.now() aquí: si se calculara en el
+ * render, el valor quedaría congelado hasta que llegara algún evento de Supabase o
+ * alguien tocara un botón, y un ticket de 30 min seguiría marcando "2 min" sin alerta.
+ */
+function minutesSince(iso, now) {
   if (!iso) return null
-  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000))
+  return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60000))
 }
 
-function OrderCard({ order, busy, onAdvance, onComplete, onCancel }) {
+function OrderCard({ order, now, busy, onAdvance, onComplete, onCancel }) {
   const [paymentMethod, setPaymentMethod] = useState('cash')
   const isServed = order.status === ORDER_STATUS.SERVED
-  const minutes = minutesSince(order.created_at)
+  const minutes = minutesSince(order.created_at, now)
   const isLate = minutes !== null && minutes >= 15
 
   return (
@@ -121,10 +126,20 @@ export default function Kitchen() {
   const { orders, loading, error, busyOrderId, fetchOpenOrders, advanceOrder, completeOrder, cancelOrder, subscribe } =
     useOrderStore()
 
+  // Un solo reloj para todo el tablero: refresca los minutos y la marca de retraso sin
+  // que cada tarjeta tenga su propio intervalo. 30 s es suficiente para un contador de
+  // minutos y no obliga a repintar el tablero cada segundo.
+  const [now, setNow] = useState(() => Date.now())
+
   useEffect(() => {
     fetchOpenOrders()
     return subscribe()
   }, [fetchOpenOrders, subscribe])
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -142,6 +157,7 @@ export default function Kitchen() {
             <OrderCard
               key={order.id}
               order={order}
+              now={now}
               busy={busyOrderId === order.id}
               onAdvance={advanceOrder}
               onComplete={completeOrder}

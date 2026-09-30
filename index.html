@@ -9,10 +9,30 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Las fuentes NO deben bloquear el primer pintado. Un <link rel="stylesheet">
+         normal en <head> detiene el render hasta que responde el CDN: en el wifi de un
+         restaurante con portal cautivo o Google filtrado, la app se queda en blanco sin
+         pintar siquiera el shell. Se cargan por debajo de media="print" (no bloqueante)
+         y se promote a "all" al llegar. El fallback de tailwind.config.js (Georgia,
+         system-ui, ui-monospace) cubre mientras tanto. -->
     <link
+      rel="preload"
+      as="style"
       href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap"
-      rel="stylesheet"
     />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap"
+      />
+    </noscript>
 
     <title>Nuevo Imperio Burger</title>
   </head>
