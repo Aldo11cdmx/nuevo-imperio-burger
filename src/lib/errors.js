@@ -49,6 +49,10 @@ const BY_CODE = {
   23514: 'Alguno de los valores capturados no está permitido.',
   // Rango fuera de los límites del tipo.
   22003: 'Uno de los números capturados está fuera de rango.',
+  // Tipo de dato inválido: casi siempre un número donde el servidor esperaba un entero,
+  // como un "2.5" en un campo de "cuántas personas". Sin esto se filtraba el
+  // "invalid input syntax for type integer" de Postgres, que no le dice nada al cajero.
+  '22P02': 'Alguno de los valores capturados no tiene el formato esperado.',
   // Violación de sintaxis en SQL: casi siempre un nombre de columna mal escrito.
   42601: 'La operación no se pudo preparar. Revisa la actualización de la base de datos.',
 }
@@ -83,12 +87,28 @@ const BY_TEXT = [
       'timeout',
       'timed out',
       'aborted',
+      // Los códigos de error de red de Chromium llegan como `net::ERR_*`. El caso más
+      // común en una tablet es ERR_INTERNET_DISCONNECTED, que ocurre cada vez que el
+      // Wi-Fi del local se cae: es exactamente cuando más importa que el mensaje sea
+      // entendible y no una cadena de navegador en inglés.
+      'net::err',
+      'err_inter',
+      'err_net',
+      'offline',
     ],
     'No se pudo hablar con el servidor. Revisa la conexión e intenta de nuevo.',
   ],
   [
     ['cors', 'access-control-allow-origin'],
     'El servidor bloqueó la petición desde el navegador. Revisa la configuración de la app.',
+  ],
+  // 22P02 también por texto, y no solo por código. Supabase siempre manda el código, así
+  // que esto es una red de seguridad para cuando el error llega sin él, que es lo que pasa
+  // si algo en medio reescribe la respuesta. El texto es inequívoco de Postgres, así que
+  // no hay riesgo de tragarse un mensaje nuestro.
+  [
+    ['invalid input syntax', 'invalid text representation', 'malformed array literal'],
+    'Alguno de los valores capturados no tiene el formato esperado.',
   ],
 ]
 

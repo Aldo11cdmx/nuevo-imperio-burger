@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import supabase from '../lib/supabase'
+import { friendlyError } from '../lib/errors'
 import { useAuthStore } from './useAuthStore'
 import { useShiftStore } from './useShiftStore'
 
@@ -241,15 +242,25 @@ export const useOrderStore = create((set, get) => ({
    * el precio y el stock los calcula el servidor.
    */
   patchOrder: async (orderId, { status }) => {
+    // El PIN se resuelve antes de tocar la red. advance_order lo exige desde la
+    // corrección de QA: `served` es lo que hace una orden cobrable, así que sin PIN
+    // cualquiera con la anon key podía marcar servida una orden ajena.
+    const { pin } = useAuthStore.getState()
+    if (!pin) {
+      set({ error: 'Tu sesión venció. Vuelve a ingresar con tu PIN.' })
+      return
+    }
+
     set({ busyOrderId: orderId, error: null })
 
     const { data, error } = await supabase.rpc('advance_order', {
+      p_pin: pin,
       p_order_id: orderId,
       p_to_status: status,
     })
 
     if (error) {
-      set({ busyOrderId: null, error: error.message })
+      set({ busyOrderId: null, error: friendlyError(error) })
       return
     }
 
