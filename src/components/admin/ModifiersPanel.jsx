@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Loader2, Pencil, Plus, RefreshCw, X } from 'lucide-react'
 import TouchButton from '../TouchButton'
+import Toast from '../Toast'
 import { formatMXN } from '../../lib/format'
+import { friendlyError, isAuthError } from '../../lib/errors'
 import supabase from '../../lib/supabase'
 import { INPUT, PANEL, PANEL_TITLE } from './fields'
 
@@ -29,6 +31,16 @@ export default function ModifiersPanel({ adminPin }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [toast, setToast] = useState(null)
+
+  /**
+   * Qué operación está guardando, para el mensaje de éxito y para el spinner.
+   *
+   * No es un simple booleano porque el panel tiene tres formularios distintos: sin esto
+   * el spinner del grupo parpadearía al agregar un extra, y el toast de "guardado"
+   * aparecería sin que quede claro qué se guardó.
+   */
+  const [pendingAction, setPendingAction] = useState(null)
 
   const [groupForm, setGroupForm] = useState(EMPTY_GROUP)
   const [editingGroupId, setEditingGroupId] = useState(null)
@@ -52,7 +64,7 @@ export default function ModifiersPanel({ adminPin }) {
 
     if (catalog.error) {
       setLoading(false)
-      setError(catalog.error.message)
+      setError(friendlyError(catalog.error, 'No se pudo cargar el catálogo de extras.'))
       return
     }
     // null es el PIN que no es de admin. Las dos RPCs devuelven null igual, así que con
@@ -73,6 +85,37 @@ export default function ModifiersPanel({ adminPin }) {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminPin])
+
+  /**
+   * Falla de una operación, en el mismo formato siempre.
+   *
+   * Centralizarla tiene dos beneficios. Uno visible: nunca se muestra el texto crudo de
+   * Postgres. El otro es el que más importa: un fallo de sesión dice explícitamente que
+   * hay que volver a ingresar con el PIN, y uno de red no. Antes esos dos casos salían
+   * iguales y el administrador acababa reingresando su PIN cada vez que se le caía el
+   * wifi, que es lo contrario de lo útil.
+   *
+   * @param {unknown} rpcError
+   * @param {string} que  Qué se intentaba hacer, para el mensaje.
+   */
+  const fail = (rpcError, que) => {
+    const message = friendlyError(rpcError, `No se pudo ${que}. Intenta de nuevo.`)
+    setError(message)
+    setToast({
+      tone: 'error',
+      title: isAuthError(rpcError) ? 'Tu sesión venció' : `No se pudo ${que}`,
+      detail: message,
+    })
+    setPendingAction(null)
+    return false
+  }
+
+  /** Éxito: se avisa en el toast y se limpia el error de la cinta. */
+  const done = (title, detail) => {
+    setError(null)
+    setToast({ tone: 'success', title, detail })
+    setPendingAction(null)
+  }
 
   // Qué grupos ofrece cada producto, invertido a un diccionario para no recorrer la
   // lista entera por cada producto al pintar. Con 60 productos y 3 grupos da igual, pero
@@ -113,6 +156,7 @@ export default function ModifiersPanel({ adminPin }) {
   const saveGroup = async (event) => {
     event.preventDefault()
     setSaving(true)
+    setPendingAction('grupo')
     setError(null)
 
     const { error: rpcError } = await supabase.rpc('save_modifier_group', {
@@ -126,14 +170,17 @@ export default function ModifiersPanel({ adminPin }) {
 
     if (rpcError) {
       setSaving(false)
-      setError(rpcError.message)
-      return
+      return fail(rpcError, 'guardar el grupo de extras')
     }
 
     setSaving(false)
     setEditingGroupId(null)
     setGroupForm(EMPTY_GROUP)
-    load()
+    await load()
+    done(
+      editingGroupId ? 'Grupo actualizado' : 'Grupo creado',
+      `"${groupForm.name}" quedó guardado.`,
+    )
   }
 
   // ---------------------------------------------------------------------------
@@ -168,14 +215,15 @@ export default function ModifiersPanel({ adminPin }) {
 
     if (rpcError) {
       setSaving(false)
-      setError(rpcError.message)
-      return
+      return fail(rpcError, 'guardar el extra')
     }
 
     setSaving(false)
+    const nombre = modifierForm.name
     setEditingModifierId(null)
     setModifierForm(EMPTY_MODIFIER)
-    load()
+    await load()
+    done(editingModifierId ? 'Extra actualizado' : 'Extra agregado', `"${nombre}" quedó guardado.`)
   }
 
   /**
@@ -196,10 +244,15 @@ export default function ModifiersPanel({ adminPin }) {
       p_is_active: !modifier.is_active,
     })
     if (rpcError) {
-      setError(rpcError.message)
-      return
+      return fail(rpcError, 'cambiar el extra')
     }
-    load()
+    await load()
+    done(
+      modifier.is_active ? `Se ocultó ${modifier.name}` : `${modifier.name} volvió a la carta`,
+      modifier.is_active
+        ? 'El mesero ya no lo verá en el POS.'
+        : 'Vuelve a aparecer en la carta.',
+    )
   }
 
   // ---------------------------------------------------------------------------
@@ -226,9 +279,9 @@ export default function ModifiersPanel({ adminPin }) {
       p_group_ids: next,
     })
     if (rpcError) {
-      setError(rpcError.message)
+      return fail(rpcError, 'actualizar los extras del producto')
     }
-    load()
+    await load()
   }
 
   return (
@@ -243,8 +296,22 @@ export default function ModifiersPanel({ adminPin }) {
           1 a 1 significa que hay que escoger exactamente uno.
         </p>
 
-        <form onSubmit={saveGroup} className="grid gap-3 sm:grid-cols-[1fr_6rem_6rem_auto] sm:items-end">
-          <div>
+        {/*
+          El `sm:items-end` alinea los campos por su BASE, no por su centro, y por eso
+          los labels de arriba tienen que tener la misma altura en las cuatro columnas:
+          los de Mínimo y Máximo son una sola palabra y los de Nombre pueden partirse en
+          dos líneas. Con labels de una sola línea fija, la grilla queda con los campos
+          desalineados en cuanto el nombre del grupo es largo, y se nota a la vista.
+
+          Por eso los labels viven en una fila fija arriba y el campo siempre ocupa la misma
+          altura en la parte de baja de su celda, de modo que la grilla no se descuadra
+          aunque el nombre del grupo ocupe dos líneas.
+        */}
+        <form
+          onSubmit={saveGroup}
+          className="grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-[1fr_5.5rem_5.5rem_auto] sm:items-end"
+        >
+          <div className="col-span-2 sm:col-span-1">
             <label htmlFor="group-name" className="mb-1.5 block text-xs text-bone-muted">
               Nombre del grupo
             </label>
@@ -254,6 +321,7 @@ export default function ModifiersPanel({ adminPin }) {
               onChange={(event) => setGroupForm({ ...groupForm, name: event.target.value })}
               placeholder="Extras, Terminado, Sin gluten…"
               required
+              disabled={saving && pendingAction === 'grupo'}
               className={INPUT}
             />
           </div>
@@ -268,6 +336,8 @@ export default function ModifiersPanel({ adminPin }) {
                 setGroupForm({ ...groupForm, min_select: event.target.value.replace(/\D/g, '') })
               }
               inputMode="numeric"
+              aria-label="Mínimo de extras a elegir"
+              disabled={saving && pendingAction === 'grupo'}
               className={`${INPUT} text-center font-ticket`}
             />
           </div>
@@ -283,23 +353,39 @@ export default function ModifiersPanel({ adminPin }) {
               }
               inputMode="numeric"
               required
+              aria-label="Máximo de extras a elegir"
+              disabled={saving && pendingAction === 'grupo'}
               className={`${INPUT} text-center font-ticket`}
             />
           </div>
-          <div className="flex gap-2">
-            <TouchButton type="submit" disabled={saving} className="min-h-0 px-4 py-2.5 text-sm">
-              {saving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
-              {editingGroupId ? 'Guardar' : 'Crear'}
+          <div className="col-span-2 flex gap-2 sm:col-span-1">
+            <TouchButton
+              type="submit"
+              disabled={saving}
+              className="min-h-touch flex-1 px-4 text-sm sm:flex-none"
+            >
+              {saving && pendingAction === 'grupo' ? (
+                <>
+                  <Loader2 className="animate-spin" size={16} />
+                  Guardando…
+                </>
+              ) : (
+                <>
+                  {editingGroupId ? <Check size={16} /> : <Plus size={16} />}
+                  {editingGroupId ? 'Guardar' : 'Crear grupo'}
+                </>
+              )}
             </TouchButton>
             {editingGroupId && (
               <TouchButton
                 variant="ghost"
                 aria-label="Cancelar edición del grupo"
+                disabled={saving}
                 onClick={() => {
                   setEditingGroupId(null)
                   setGroupForm(EMPTY_GROUP)
                 }}
-                className="min-h-0 px-3 py-2.5"
+                className="min-h-touch px-3"
               >
                 <X size={16} />
               </TouchButton>
@@ -307,11 +393,12 @@ export default function ModifiersPanel({ adminPin }) {
           </div>
         </form>
 
-        <label className="mt-3 flex items-center gap-2 text-sm">
+        <label className="mt-3 flex min-h-touch cursor-pointer items-center gap-2 text-sm">
           <input
             type="checkbox"
             checked={groupForm.is_active}
             onChange={(event) => setGroupForm({ ...groupForm, is_active: event.target.checked })}
+            disabled={saving && pendingAction === 'grupo'}
             className="h-5 w-5 accent-saffron-400"
           />
           Grupo activo (aparece en la carta)
@@ -363,34 +450,51 @@ export default function ModifiersPanel({ adminPin }) {
                   variant="ghost"
                   onClick={() => startEditGroup(group)}
                   aria-label={`Editar el grupo ${group.name}`}
-                  className="min-h-0 rounded-lg px-2.5 py-2"
+                  className="min-h-touch w-11 rounded-lg"
                 >
                   <Pencil size={16} />
                 </TouchButton>
               </div>
 
+              {/*
+                Cada fila se lee de izquierda a derecha como una frase: nombre, precio,
+                acción. El precio va antes de los botones y no después para que la
+                columna de montos quede alineada al limpiar los botones; con el precio
+                al final, el número salta hacia la izquierda y la columna deja de
+                leerse como una columna.
+              */}
               <ul className="mt-3 divide-y divide-white/5">
                 {group.modifiers.map((modifier) => (
-                  <li key={modifier.modifier_id} className="flex items-center justify-between gap-3 py-2">
-                    <span className={modifier.is_active ? 'text-sm' : 'text-sm text-bone-faint line-through'}>
+                  <li
+                    key={modifier.modifier_id}
+                    className="flex min-h-touch items-center justify-between gap-3 py-1.5"
+                  >
+                    <span
+                      className={
+                        modifier.is_active
+                          ? 'min-w-0 flex-1 truncate text-sm'
+                          : 'min-w-0 flex-1 truncate text-sm text-bone-faint line-through'
+                      }
+                    >
                       {modifier.name}
                     </span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-ticket text-sm text-saffron-400">
-                        {Number(modifier.price) === 0 ? 'gratis' : formatMXN(modifier.price)}
-                      </span>
+                    <span className="w-20 shrink-0 text-right font-ticket text-sm font-semibold text-saffron-400">
+                      {Number(modifier.price) === 0 ? 'gratis' : formatMXN(modifier.price)}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-1.5">
                       <TouchButton
                         variant="ghost"
                         onClick={() => startEditModifier(group.group_id, modifier)}
                         aria-label={`Editar ${modifier.name}`}
-                        className="min-h-0 rounded-lg px-2 py-1.5"
+                        className="min-h-touch w-11 rounded-lg"
                       >
-                        <Pencil size={14} />
+                        <Pencil size={16} />
                       </TouchButton>
                       <TouchButton
                         variant="secondary"
                         onClick={() => toggleModifier(group.group_id, modifier)}
-                        className="min-h-0 rounded-lg px-2 py-1.5 text-xs"
+                        aria-pressed={!modifier.is_active}
+                        className="min-h-touch rounded-lg px-3 text-sm"
                       >
                         {modifier.is_active ? 'Ocultar' : 'Mostrar'}
                       </TouchButton>
@@ -402,9 +506,9 @@ export default function ModifiersPanel({ adminPin }) {
               {open && (
                 <form
                   onSubmit={(event) => saveModifier(event, group.group_id)}
-                  className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-[1fr_8rem_auto] sm:items-end"
+                  className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-white/10 pt-3 sm:grid-cols-[1fr_8rem_auto] sm:items-end"
                 >
-                  <div>
+                  <div className="col-span-2 sm:col-span-1">
                     <label htmlFor="mod-name" className="mb-1.5 block text-xs text-bone-muted">
                       {editingModifierId ? 'Nombre del extra' : 'Nuevo extra'}
                     </label>
@@ -414,6 +518,7 @@ export default function ModifiersPanel({ adminPin }) {
                       onChange={(event) => setModifierForm({ ...modifierForm, name: event.target.value })}
                       placeholder="Extra queso"
                       required
+                      disabled={saving && pendingAction === 'extra'}
                       className={INPUT}
                     />
                   </div>
@@ -430,21 +535,33 @@ export default function ModifiersPanel({ adminPin }) {
                       inputMode="decimal"
                       placeholder="0.00"
                       required
+                      disabled={saving && pendingAction === 'extra'}
                       className={`${INPUT} text-center font-ticket`}
                     />
                   </div>
-                  <div className="flex gap-2">
-                    <TouchButton type="submit" disabled={saving} className="min-h-0 px-4 py-2.5 text-sm">
-                      {saving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
-                      {editingModifierId ? 'Guardar' : 'Agregar'}
+                  <div className="col-span-2 flex gap-2 sm:col-span-1">
+                    <TouchButton type="submit" disabled={saving} className="min-h-touch flex-1 px-4 text-sm sm:flex-none">
+                      {saving && pendingAction === 'extra' ? (
+                        <>
+                          <Loader2 className="animate-spin" size={16} />
+                          Guardando…
+                        </>
+                      ) : (
+                        <>
+                          {editingModifierId ? <Check size={16} /> : <Plus size={16} />}
+                          {editingModifierId ? 'Guardar' : 'Agregar'}
+                        </>
+                      )}
                     </TouchButton>
                     <TouchButton
                       variant="ghost"
+                      aria-label="Cerrar el formulario de extra"
+                      disabled={saving}
                       onClick={() => {
                         setEditingModifierId(null)
                         setModifierForm(EMPTY_MODIFIER)
                       }}
-                      className="min-h-0 px-3 py-2.5"
+                      className="min-h-touch px-3"
                     >
                       <X size={16} />
                     </TouchButton>
@@ -455,8 +572,10 @@ export default function ModifiersPanel({ adminPin }) {
               <TouchButton
                 variant="ghost"
                 onClick={() => openGroup(group.group_id)}
-                className="mt-3 min-h-0 px-3 py-2 text-xs"
+                aria-expanded={open}
+                className="mt-3 min-h-touch px-4 text-sm"
               >
+                {open ? <X size={16} /> : <Plus size={16} />}
                 {open ? 'Ocultar extras' : 'Agregar extra'}
               </TouchButton>
 
@@ -485,9 +604,18 @@ export default function ModifiersPanel({ adminPin }) {
         />
       )}
 
-      <TouchButton variant="ghost" onClick={load} disabled={loading} className="px-3 py-2 text-xs">
-        <RefreshCw size={14} /> Recargar
+      <TouchButton variant="ghost" onClick={load} disabled={loading} className="min-h-touch px-4 text-sm">
+        {loading ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+        {loading ? 'Actualizando…' : 'Recargar'}
       </TouchButton>
+
+      {/*
+        El toast va al final y FUERA del flujo del documento, pero dentro del panel: así
+        el mensaje de éxito no empuja hacia abajo la lista de productos, que es lo que
+        se estaba editando. Un aviso que mueve el contenido mientras se está TECLEANDO
+        sobre él es peor que no avisar.
+      */}
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   )
 }
@@ -547,6 +675,15 @@ function ProductGroupsSection({ products, groups, groupsByProduct, onToggle }) {
                 <p className="text-xs text-bone-faint">{product.category}</p>
               </div>
               <div className="flex flex-wrap gap-1.5">
+                {/*
+                  Cada botón crece a `min-h-touch` (3.5rem) en vez de un padding de 4px.
+                  Antes medía unos 24px de alto: en una tablet de 8 pulgadas eso está por
+                  debajo del mínimo comfortable para un dedo, y con cuatro grupos por
+                  producto quedaban tan juntos que era fácil tocar el de al lado. El ancho
+                  se deja al texto porque los nombres de grupo varían mucho; lo que se fija
+                  es la ALTURA, que es la dimensión que decide si dos objetivos vecinos se
+                  distinguen con un dedo.
+                */}
                 {offerable.map((group) => {
                   const on = assigned.includes(group.group_id)
                   return (
@@ -555,13 +692,13 @@ function ProductGroupsSection({ products, groups, groupsByProduct, onToggle }) {
                       type="button"
                       onClick={() => onToggle(product.id, group.group_id)}
                       aria-pressed={on}
-                      className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                      className={`flex min-h-touch items-center gap-1.5 rounded-full border px-3.5 text-sm transition-colors ${
                         on
-                          ? 'border-jade-400 bg-jade-400/15 text-jade-300'
+                          ? 'border-jade-400 bg-jade-400/15 font-semibold text-jade-300'
                           : 'border-white/10 text-bone-muted hover:bg-white/5'
                       }`}
                     >
-                      {on && <Check size={11} />}
+                      {on && <Check size={12} />}
                       {group.name}
                     </button>
                   )

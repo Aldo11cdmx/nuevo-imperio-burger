@@ -24,10 +24,43 @@ export const TABLE_STATES = {
   BILLING: 'billing',
 }
 
+/**
+ * Color de cada estado en el mapa.
+ *
+ * El fondo va AL FONDO y el color va en el texto, al punto y en el borde, no al
+ * revés. La razón es la de siempre: en una tablet el dedo tapa la ficha mientras
+ * la toca, y lo que se lee es lo que queda alrededor. Con el color saturado
+ * fillings toda el salón se ve un bloque rojo y verde del que no se distinguen las
+ * mesas; con el fondo oscuro y un color vivo en el número, cada mesa se lee sola
+ * desde el otro lado del mostrador.
+ *
+ * `solid` es el relleno de la pastilla del importe pendiente: ese sí lleva fondo
+ * de color, porque es lo único que tiene que saltar a la vista de un vistazo. El
+ * texto usa el tono 300 porque la paleta no tiene 200: 300 es el claro más suave
+ * que existe y es el único que no vibra sobre el fondo de tinta.
+ */
 const STATE_STYLE = {
-  free: { dot: 'bg-jade-400', border: 'border-jade-400/50', badge: 'Libre', text: 'text-jade-300' },
-  busy: { dot: 'bg-emberred-400', border: 'border-emberred-400/50', badge: 'Ocupada', text: 'text-emberred-300' },
-  billing: { dot: 'bg-saffron-400', border: 'border-saffron-400/50', badge: 'Cobrando', text: 'text-saffron-300' },
+  free: {
+    dot: 'bg-jade-400',
+    border: 'border-jade-400/40',
+    badge: 'Libre',
+    text: 'text-jade-300',
+    solid: 'bg-jade-400/15 text-jade-300',
+  },
+  busy: {
+    dot: 'bg-emberred-400',
+    border: 'border-emberred-400',
+    badge: 'Ocupada',
+    text: 'text-emberred-300',
+    solid: 'bg-emberred-400/20 text-emberred-300',
+  },
+  billing: {
+    dot: 'bg-saffron-400',
+    border: 'border-saffron-400',
+    badge: 'Cobrando',
+    text: 'text-saffron-300',
+    solid: 'bg-saffron-400/20 text-saffron-300',
+  },
 }
 
 export const tableStateStyle = (state) => STATE_STYLE[state] ?? STATE_STYLE.free
@@ -66,6 +99,9 @@ export const useTableStore = create((set, get) => ({
       shape: row.shape,
       posX: Number(row.pos_x),
       posY: Number(row.pos_y),
+      // El RPC ya anula la zona en las virtuales; aquí solo se normaliza el string
+      // vacío a null para que el mapa pueda preguntar por zona sin defenderse.
+      zone: row.zone ?? null,
       sortOrder: Number(row.sort_order),
       isVirtual: row.is_virtual,
       state: row.state,
@@ -121,7 +157,7 @@ export const useTableStore = create((set, get) => ({
    * que inició sesión. En el POS bastaría el segundo, pero editar el layout es
    * una tarea de gerente.
    */
-  saveTable: async ({ tableId = null, number, label, seats, shape, posX, posY, isActive, adminPin }) => {
+  saveTable: async ({ tableId = null, number, label, seats, shape, posX, posY, isActive, zone, adminPin }) => {
     const pin = adminPin ?? useAuthStore.getState().pin
     if (!pin) {
       set({ error: 'Se necesita el PIN de administrador' })
@@ -129,6 +165,13 @@ export const useTableStore = create((set, get) => ({
     }
 
     set({ saving: true, error: null })
+
+    // p_zone SIEMPRE viaja, aunque el formulario no lo haya tocado. El RPC tiene
+    // default null, y un parámetro ausente llega como null: guardar la ficha sin
+    // recargar el mapa borraría el bloque de la mesa sin que nadie lo pidiera.
+    // Cuando el llamador no dice nada, se reenvía la zona que ya tenía.
+    const current = tableId ? get().tables.find((t) => t.tableId === tableId) : null
+    const zoneToSave = zone === undefined ? (current?.zone ?? null) : zone
 
     const { error } = await supabase.rpc('save_table', {
       p_admin_pin: pin,
@@ -140,6 +183,7 @@ export const useTableStore = create((set, get) => ({
       p_pos_x: posX,
       p_pos_y: posY,
       p_is_active: isActive,
+      p_zone: zoneToSave || null,
     })
 
     if (error) {

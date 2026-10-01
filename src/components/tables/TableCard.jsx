@@ -89,14 +89,28 @@ export default function TableCard({ table, editable = false, onSelect, onMoveEnd
       onPointerCancel={onPointerUp}
       onClick={() => !editable && onSelect?.(table)}
       style={{ left: `${table.posX}%`, top: `${table.posY}%` }}
-      className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-0.5 border-2 text-center transition-shadow ${
+      // aria-label en vez de aria-described: el lector de pantalla necesita una
+      // sola frase con nombre, número y estado, no tres fragmentos sueltos.
+      aria-label={`${table.label}, mesa ${table.number}, ${style.badge.toLowerCase()}${
+        table.amountDue ? `, ${formatMXN(table.amountDue)} pendiente` : ''
+      }`}
+      className={`absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-0.5 text-center transition-shadow ${
         editable ? 'cursor-grab touch-none select-none' : 'cursor-pointer'
       } ${dragging ? 'z-20 scale-110 shadow-2xl' : 'z-10'} ${shapeClass} ${
         table.isVirtual
-          ? 'h-16 w-28 border-dashed border-white/25 bg-ink-800/80'
-          : 'h-20 w-20 ' + style.border + ' bg-ink-800/90'
+          ? 'h-16 w-28 border-2 border-dashed border-white/25 bg-ink-800/80'
+          : 'h-20 w-20 border-2 bg-ink-900/95 ' + style.border
       }`}
     >
+      {/*
+        Área de toque más grande que la ficha, SIN cambiar el tamaño visible.
+        Se estira con un pseudo-elemento en vez de con padding o min-width porque
+        un padding agranda la ficha y la geometría del salón deja de ser la de
+        h-20/w-20, que es la unidad con la que se calculan los bloques y el
+        arrastre. Un ::before es parte del botón, así que el dedo lo activa sin
+        necesidad de un contenedor aparte ni de un z-index más alto.
+      */}
+      <span aria-hidden="true" className="pointer-events-auto absolute -inset-2.5" />
       {table.isVirtual ? (
         <>
           <span className="flex items-center gap-1 text-[0.6rem] font-semibold tracking-wide text-bone-muted uppercase">
@@ -114,7 +128,9 @@ export default function TableCard({ table, editable = false, onSelect, onMoveEnd
           </span>
           <span className="font-ticket text-base leading-none font-bold text-bone">{table.number}</span>
           {table.state !== 'free' && (
-            <span className={`font-ticket text-[0.6rem] font-bold ${style.text}`}>
+            <span
+              className={`font-ticket rounded-full px-1.5 py-px text-[0.6rem] font-bold ${style.solid}`}
+            >
               {formatMXN(table.amountDue)}
             </span>
           )}

@@ -23,11 +23,16 @@ export default {
           600: '#B8710F',
         },
         emberred: {
+          300: '#F9937E',
           400: '#F2664A',
           500: '#D6452A',
           600: '#A9331D',
         },
         jade: {
+          // El 300 se añadió para el estado del mapa: sin él, `text-jade-300` no
+          // generaba CSS y el importe caía al color heredado. Tailwind no avisa
+          // cuando una clase de color no existe, simplemente no la compila.
+          300: '#86EFC0',
           400: '#4ADE9B',
           500: '#22C07D',
         },

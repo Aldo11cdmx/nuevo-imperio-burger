@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Loader2, Plus, Save, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Loader2, Plus, Save, Trash2, X } from 'lucide-react'
 import TableMap from '../../tables/TableMap'
 import TouchButton from '../../TouchButton'
 import { INPUT, PANEL, PANEL_TITLE } from '../fields'
@@ -31,8 +31,17 @@ export default function TableLayoutEditor({ adminPin }) {
     fetchTables()
   }, [fetchTables])
 
+  /**
+   * Los nombres de zona que ya existen en el salón, para ofrecerlos como atajos.
+   * Se leen de las mesas y no se guardan aparte: si el nombre vive en dos sitios,
+   * basta con editar uno para que dejen de coincidir.
+   */
+  const zoneNames = useMemo(
+    () => [...new Set(tables.map((t) => t.zone).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')),
+    [tables],
+  )
+
   const startEdit = (table) => {
-    
     setForm({
       tableId: table.tableId,
       number: table.number,
@@ -40,6 +49,7 @@ export default function TableLayoutEditor({ adminPin }) {
       seats: table.seats,
       shape: table.shape,
       isActive: true,
+      zone: table.zone ?? '',
     })
   }
 
@@ -56,6 +66,9 @@ export default function TableLayoutEditor({ adminPin }) {
       posX: override.posX ?? current?.posX ?? 50,
       posY: override.posY ?? current?.posY ?? 50,
       isActive: form.isActive,
+      // Vacío = sin zona, no una zona llamada "". El RPC también lo normaliza,
+      // pero mandarlo ya limpio evita depender de esa normalización.
+      zone: form.zone.trim() || null,
     })
     setSaving(false)
     return ok
@@ -73,6 +86,7 @@ export default function TableLayoutEditor({ adminPin }) {
       posX: current?.posX ?? 50,
       posY: current?.posY ?? 50,
       isActive: false,
+      zone: form.zone.trim() || null,
     })
     if (ok) setForm(null)
   }
@@ -121,7 +135,7 @@ export default function TableLayoutEditor({ adminPin }) {
             />
           )}
           <p className="mt-2 text-center text-xs text-bone-muted">
-            Arrastra una mesa para moverla. Toca su número para editar sus datos.
+            Arrastra una mesa para moverla. Toca su número para editar sus datos o cambiar su zona.
           </p>
         </div>
 
@@ -176,6 +190,46 @@ export default function TableLayoutEditor({ adminPin }) {
                     </TouchButton>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <span className="mb-1 block text-xs font-medium text-bone-muted">Zona o bloque</span>
+                <input
+                  value={form.zone ?? ''}
+                  onChange={(e) => setForm({ ...form, zone: e.target.value })}
+                  placeholder="Bloque A, Terraza…"
+                  className={`${INPUT} text-sm`}
+                />
+                {/* Los nombres que ya existen se ofrecen como botones y no como
+                    sugerencias del navegador: un datalist en Android tarda varios
+                    toques en abrir y escribe en mayúsculas. Los bloques del salón se
+                    escriben pocas veces, pero escribirlos bien importa. */}
+                {zoneNames.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {zoneNames.map((z) => (
+                      <TouchButton
+                        key={z}
+                        variant={form.zone === z ? 'primary' : 'secondary'}
+                        onClick={() => setForm({ ...form, zone: z })}
+                        className="px-3 text-xs"
+                      >
+                        {z}
+                      </TouchButton>
+                    ))}
+                    {form.zone && (
+                      <TouchButton
+                        variant="ghost"
+                        onClick={() => setForm({ ...form, zone: '' })}
+                        className="px-3 text-xs"
+                      >
+                        <X size={13} /> Quitar
+                      </TouchButton>
+                    )}
+                  </div>
+                )}
+                <span className="mt-1 block text-[0.65rem] text-bone-muted">
+                  Déjalo vacío si la mesa no pertenece a ningún bloque.
+                </span>
               </div>
 
               <label className="flex items-center gap-2 text-sm">
@@ -233,6 +287,7 @@ export default function TableLayoutEditor({ adminPin }) {
                       <span className="font-semibold">{t.label}</span>
                       <span className="font-ticket text-xs text-bone-muted">
                         #{t.number} · {t.seats} lug.
+                        {t.zone ? ` · ${t.zone}` : ''}
                       </span>
                     </button>
                   </li>
