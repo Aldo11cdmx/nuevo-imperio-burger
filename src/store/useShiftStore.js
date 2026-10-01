@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import supabase from '../lib/supabase'
 import { useAuthStore } from './useAuthStore'
+import { useExpenseStore } from './useExpenseStore'
 
 /**
  * Turno de caja del cajero actual.
@@ -123,6 +124,10 @@ export const useShiftStore = create((set, get) => ({
     }
 
     set({ loading: false, shift: null, error: null })
+    // Los gastos del turno que se acaba de cerrar se vacían junto con él. Dejarlos puestos
+    // haría que la pantalla del turno nuevo mostrara el total de gastos del anterior y el
+    // efectivo esperado saliera descuamentado por dinero que ya se contó.
+    useExpenseStore.setState({ expenses: [], error: null })
     return report
   },
 

@@ -8,8 +8,60 @@ const emptyLine = () => ({
   price: 0,
   quantity: 1,
   notes: '',
+  /**
+   * Extras elegidos para esta línea: [{ id, name, price, quantity }].
+   *
+   * El precio se guarda porque la línea se muestra mientras se arma y el servidor
+   * valida contra el catálogo. Lo que se cobra lo vuelve a calcular el servidor con sus
+   * propios precios: si alguien cambió el precio del queso en la carta a media captura,
+   * la cuenta sale con el precio nuevo y el cliente ve lo que se le cobró de verdad.
+   */
+  modifiers: [],
   status: 'pending',
 })
+
+/**
+ * Firma de los extras de una línea.
+ *
+ * Solo se usa para decidir si dos renglones son el mismo platillo. Se ordena porque
+ * dos líneas con los mismos extras en distinto orden son la misma preparación, y sin
+ * ordenar "queso+tocino" y "tocino+queso" serían dos renglones distintos en el ticket.
+ *
+ * @param {Array<{id: string, quantity: number}>} modifiers
+ * @returns {string}
+ */
+export function modifierKey(modifiers) {
+  return (modifiers ?? [])
+    .map((mod) => `${mod.id}:${mod.quantity}`)
+    .sort()
+    .join(',')
+}
+
+/**
+ * Precio de los extras de una línea, POR UNIDAD del producto.
+ *
+ * Dos hamburguesas con un queso cada una son $30 de queso, no $15. El multiplicador
+ * por la cantidad del renglón lo pone `unitPrice`.
+ *
+ * @param {{modifiers?: Array}} line
+ * @returns {number}
+ */
+export function lineModifiersTotal(line) {
+  return (line?.modifiers ?? []).reduce(
+    (sum, mod) => sum + Number(mod.price ?? 0) * Number(mod.quantity ?? 1),
+    0,
+  )
+}
+
+/**
+ * Precio de UNA unidad del renglón: producto más sus extras.
+ *
+ * @param {object} line
+ * @returns {number}
+ */
+export function unitPrice(line) {
+  return Number(line.price ?? 0) + lineModifiersTotal(line)
+}
 
 export const ORDER_TYPES = [
   { id: 'dine_in', label: 'En local', emoji: '🍽️' },
@@ -57,13 +109,21 @@ export const useCartStore = create((set, get) => ({
    * otra línea. Con una carta de 65 productos, tres veces la misma hamburguesa es lo
    * más común y una línea por unidad llena el ticket de basura.
    *
-   * Solo se funden líneas idénticas: si la nota de cocina difiere, son preparaciones
-   * distintas y deben quedar separadas.
+   * Solo se funden líneas idénticas, y "idénticas" ahora incluye los extras: dos
+   * hamburguesas con queso y dos sin queso son dos preparaciones distintas que se
+   * cobran distinto. La nota de cocina también cuenta, como antes.
+   *
+   * @param {object} product
+   * @param {Array} [modifiers] Extras ya elegidos, si el producto tiene grupos.
    */
-  addItem: (product) =>
+  addItem: (product, modifiers = []) =>
     set((state) => {
+      const key = modifierKey(modifiers)
       const existing = state.lines.find(
-        (line) => line.productId === product.id && line.notes.trim() === '',
+        (line) =>
+          line.productId === product.id &&
+          line.notes.trim() === '' &&
+          modifierKey(line.modifiers) === key,
       )
 
       if (existing) {
@@ -82,6 +142,12 @@ export const useCartStore = create((set, get) => ({
             productId: product.id,
             name: product.name,
             price: product.price,
+            modifiers: modifiers.map((mod) => ({
+              id: mod.id,
+              name: mod.name,
+              price: Number(mod.price ?? 0),
+              quantity: Number(mod.quantity ?? 1),
+            })),
           },
         ],
       }
@@ -144,6 +210,14 @@ export const useCartStore = create((set, get) => ({
           name: item.product_name,
           quantity: item.quantity,
           notes: item.notes ?? '',
+          // Se muestran para que quien sigue agregando sepa que el queso ya está
+          // puesto, pero no se pueden editar: los renglones anteriores son intocables.
+          modifiers: (item.order_item_modifiers ?? []).map((mod) => ({
+            id: mod.id,
+            name: mod.name,
+            price: Number(mod.price ?? 0),
+            quantity: Number(mod.quantity ?? 1),
+          })),
         })),
       },
       // La cuenta manda sobre el tipo de pedido: agregar no puede volver domicilio una
@@ -203,7 +277,10 @@ export const useCartStore = create((set, get) => ({
    */
   totals: () => {
     const { lines, discount } = get()
-    const subtotal = lines.reduce((sum, line) => sum + line.price * line.quantity, 0)
+    // El subtotal incluye los extras: el precio de una hamburguesa con queso no es el
+    // de la carta, es el de la carta más el queso. Es lo que hace que el total que ve
+    // el mesero antes de enviar coincida con el que cobra el servidor.
+    const subtotal = lines.reduce((sum, line) => sum + unitPrice(line) * line.quantity, 0)
     const tax = PRICES_INCLUDE_TAX ? 0 : subtotal * TAX_RATE
     // No se deja que el descuento baje el total de cero: un total negativo lo
     // rechazaría el CHECK de orders con un error técnico en vez de uno entendible.

@@ -163,6 +163,20 @@ const platformLabel = {
  * @param {object} [data.business] Nombre y datos del negocio
  * @param {string} [data.staffName] Quién cobró
  */
+/**
+ * Precio de los extras de un renglón, ya multiplicado por la cantidad.
+ *
+ * @param {object} item Renglón con `modifiers: [{ name, price, quantity }]`.
+ * @param {number} quantity Cantidad del renglón.
+ * @returns {number}
+ */
+function modifiersTotal(item, quantity) {
+  return (item.modifiers ?? []).reduce(
+    (sum, mod) => sum + Number(mod.price ?? 0) * Number(mod.quantity ?? 1) * Number(quantity ?? 1),
+    0,
+  )
+}
+
 export function buildReceiptText({ order, payments = [], business = {}, staffName = '' }) {
   const lines = []
   const name = business.name ?? 'Nuevo Imperio Burger'
@@ -183,8 +197,22 @@ export function buildReceiptText({ order, payments = [], business = {}, staffNam
   lines.push(columns('CANT PRODUCTO', 'IMPORTE'))
 
   for (const item of order.order_items ?? []) {
-    const lineTotal = Number(item.price) * Number(item.quantity)
+    const quantity = Number(item.quantity)
+    // El importe del renglón incluye los extras. Si se calculara solo con el precio del
+    // producto, la suma de los renglones NO cuadraría con el TOTAL de abajo, porque el
+    // total viene de orders.total y ese sí los incluye. Un ticket que no suma es peor
+    // que un ticket feo.
+    const lineTotal = Number(item.price) * quantity + modifiersTotal(item, quantity)
     lines.push(columns(`${item.quantity}  ${item.product_name}`, money(lineTotal)))
+
+    // Los extras salen con su precio y alineados a la derecha, que es donde el cliente
+    // los va a buscar. Con muchos extras de golpe el ticket se alarga, pero ocultarlos
+    // haría que el total pareciera un error de cálculo.
+    for (const mod of item.modifiers ?? []) {
+      const modTotal = Number(mod.price ?? 0) * Number(mod.quantity ?? 1) * quantity
+      lines.push(columns(`    + ${mod.quantity > 1 ? `${mod.quantity}x ` : ''}${mod.name}`, money(modTotal)))
+    }
+
     if (item.notes) lines.push('    * ' + toPrintable(item.notes).slice(0, LINE_WIDTH - 6))
   }
 
@@ -247,7 +275,7 @@ export function buildReceiptText({ order, payments = [], business = {}, staffNam
  * @param {string} [data.orderType]
  * @param {string} [data.platform]
  * @param {string} [data.at]        ISO de la hora; sin esto cae en el reloj actual.
- * @param {Array}  data.items       [{ name, quantity, notes }]. Sin precio: no se usa.
+ * @param {Array}  data.items       [{ name, quantity, notes, modifiers }]. Sin precio: no se usa.
  */
 export function buildKitchenText({
   code,
@@ -287,6 +315,14 @@ export function buildKitchenText({
     // del nombre confunde más de lo que ayuda cuando el nombre se parte.
     lines.push(`${quantity}x ${nameLines[0].slice(3)}`)
     lines.push(...nameLines.slice(1))
+
+    // Los extras van con "+" y SIN precio. El precio existe para cobrar y aquí no se
+    // cobra nada; lo que importa es que quien cocina sepa que hay queso y cuánta carne
+    // toca. Igual que la nota, van envueltos y sangrados.
+    for (const mod of item.modifiers ?? []) {
+      const modCount = Number(mod.quantity ?? 1)
+      lines.push(...wrap(`+ ${modCount > 1 ? `${modCount}x ` : ''}${mod.name}`, width, '   '))
+    }
 
     if (item.notes) lines.push(...wrap(item.notes, width, '   * '))
   }

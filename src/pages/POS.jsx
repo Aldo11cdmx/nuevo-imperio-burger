@@ -16,9 +16,11 @@ import {
   TAKEAWAY_TABLE,
   useCartStore,
 } from '../store/useCartStore'
-import { selectCategories, useProductStore } from '../store/useProductStore'
+import { selectCategories, selectGroupsForProduct, useProductStore } from '../store/useProductStore'
 import { OPEN_STATUSES } from '../store/useOrderStore'
 import { useShiftStore } from '../store/useShiftStore'
+import ModifierDialog from '../components/ModifierDialog'
+import { QUICK_NOTES } from '../data/quickNotes'
 
 /**
  * Campos que el POS necesita de una cuenta abierta.
@@ -28,7 +30,8 @@ import { useShiftStore } from '../store/useShiftStore'
  * vienen en la misma consulta para no hacer un segundo viaje al tocar "continuar".
  */
 const CUENTAS_ABIERTAS =
-  'id, code, total, paid_total, order_type, platform, table_number, customer_name, order_items(product_name, quantity, notes)'
+  'id, code, total, paid_total, order_type, platform, table_number, customer_name, ' +
+  'order_items(product_name, quantity, notes, order_item_modifiers(id, name, price, quantity))'
 
 export default function POS() {
   const [category, setCategory] = useState('all')
@@ -48,6 +51,14 @@ export default function POS() {
   // se queda aquí y se borra al mandar o vaciar la cuenta. Un PIN de gerente dentro
   // de un store global quedaría disponible para cualquier componente que lo lea.
   const [discountPin, setDiscountPin] = useState(null)
+  /**
+   * Producto esperando a que se elijan sus extras, o null.
+   *
+   * Vive aquí y no en el store del carrito porque NO es una línea todavía: hasta que
+   * se aceptan los extras no existe nada que mandar. Si se guardara en el carrito, el
+   * renglón a medio configurar se contaría en el total y se podría mandar a cocina.
+   */
+  const [extrasFor, setExtrasFor] = useState(null)
 
   const products = useProductStore((state) => state.products)
   const loadProducts = useProductStore((state) => state.load)
@@ -55,6 +66,8 @@ export default function POS() {
   const catalogLoading = useProductStore((state) => state.loading)
   const catalogError = useProductStore((state) => state.error)
   const catalogLoaded = useProductStore((state) => state.loaded)
+  const modifierGroups = useProductStore((state) => state.modifierGroups)
+  const loadModifierGroups = useProductStore((state) => state.loadModifierGroups)
 
   const employee = useAuthStore((state) => state.employee)
   const pin = useAuthStore((state) => state.pin)
@@ -92,6 +105,22 @@ export default function POS() {
     loadProducts()
     return subscribeProducts()
   }, [loadProducts, subscribeProducts])
+
+  /**
+   * Catálogo de extras.
+   *
+   * Va en un efecto aparte del de productos y no dentro de `load` porque son cosas
+   * distintas: los productos los refresca Realtime en cada venta de un producto con
+   * stock, y recargar los extras en cada una de esas ventas sería tráfico gratis. El
+   * catálogo de extras solo cambia cuando el gerente edita la carta, y para eso está
+   * el botón de recargar.
+   *
+   * Espera al PIN porque la RPC lo valida: sin sesión devuelve null y el POS se
+   * quedaría sin extras para siempre.
+   */
+  useEffect(() => {
+    if (employee && pin) loadModifierGroups()
+  }, [employee, pin, loadModifierGroups])
 
   // Al entrar al POS se busca el turno abierto. El servidor no lo entrega en la carga del
   // catálogo, y sin él el botón de enviar queda inútil sin avisar por qué.
@@ -210,6 +239,46 @@ export default function POS() {
     [category, products],
   )
 
+  const groupsFor = useCallback(
+    (productId) => selectGroupsForProduct(modifierGroups, productId),
+    [modifierGroups],
+  )
+
+  /**
+   * Tocar un producto de la carta.
+   *
+   * Sin grupos de extras entra directo al carrito. Con grupos abre el diálogo, porque
+   * la hamburguesa y su queso se deciden juntos: agregar la línea primero y modificarla
+   * después dejaría el momento en que existe una hamburguesa sin queso, que es
+   * exactamente el estado que no queremos ni un instante.
+   */
+  const tapProduct = useCallback(
+    (product) => {
+      const groups = groupsFor(product.id)
+      if (groups.length === 0) {
+        addItem(product)
+        return
+      }
+      setExtrasFor({ product, groups })
+    },
+    [groupsFor, addItem],
+  )
+
+  /**
+   * Acepta los extras del diálogo y mete la línea al carrito.
+   *
+   * `commit` es la acción que el diálogo recibe: se le pasa explícitamente para que el
+   * componente se pueda probar sin conocer el store.
+   */
+  const confirmModifiers = useCallback(
+    (modifiers) => {
+      if (!extrasFor) return
+      addItem(extrasFor.product, modifiers)
+      setExtrasFor(null)
+    },
+    [extrasFor, addItem],
+  )
+
   /**
    * A dónde va la orden si el cajero no escribió una mesa.
    *
@@ -247,7 +316,33 @@ export default function POS() {
       name: line.name,
       quantity: line.quantity,
       notes: line.notes,
+      modifiers: line.modifiers.map((mod) => ({ name: mod.name, quantity: mod.quantity })),
     }))
+
+    /**
+     * Payload de una línea del carrito.
+     *
+     * Solo viajan identificadores. El precio de los extras lo vuelve a leer el servidor
+     * del catálogo: si la tablet tuviera abierto el monto, bastaría abrir el devtools
+     * y cambiar el precio de un queso para que la cuenta de la gaveta dejara de cuadrar
+     * con lo que el cliente pagó.
+     *
+     * `modifiers` se manda solo si hay algo: un array vacío en todas las líneas de las
+     * 65 referencias de carta es ruido en el request.
+     */
+    const toItemPayload = (line) => ({
+      product_id: line.productId,
+      quantity: line.quantity,
+      notes: line.notes.trim() || null,
+      ...(line.modifiers.length > 0
+        ? {
+            modifiers: line.modifiers.map((mod) => ({
+              modifier_id: mod.id,
+              quantity: mod.quantity,
+            })),
+          }
+        : {}),
+    })
 
     /**
      * Agrega a una cuenta abierta en vez de crear una orden nueva.
@@ -259,11 +354,7 @@ export default function POS() {
       const { data, error: appendError } = await supabase.rpc('append_order_items', {
         p_pin: pin,
         p_order_id: existingOrder.id,
-        p_items: lines.map((line) => ({
-          product_id: line.productId,
-          quantity: line.quantity,
-          notes: line.notes.trim() || null,
-        })),
+        p_items: lines.map(toItemPayload),
       })
 
       if (appendError) {
@@ -329,11 +420,7 @@ export default function POS() {
       p_shift_id: shift.id,
       p_table_number: effectiveTable,
       p_customer_name: customerName.trim() || null,
-      p_items: lines.map((line) => ({
-        product_id: line.productId,
-        quantity: line.quantity,
-        notes: line.notes.trim() || null,
-      })),
+      p_items: lines.map(toItemPayload),
       p_order_type: orderType,
       p_platform: platform,
       p_discount_amount: discountTotal,
@@ -447,13 +534,17 @@ export default function POS() {
                 // porque su `stock` es 0 siempre.
                 const soldOut = product.tracks_stock && product.stock <= 0
                 const low = product.tracks_stock && !soldOut && product.stock <= product.low_stock_threshold
+                // Un producto con extras no entra directo al carrito, así que la tarjeta
+                // avisa que al tocarla Opens algo más. Sin este aviso el mesero toca, ve
+                // que no pasó nada y toca otra vez pensando que la tablet se trabó.
+                const hasExtras = groupsFor(product.id).length > 0
 
                 return (
                   <button
                     key={product.id}
                     type="button"
                     disabled={soldOut}
-                    onClick={() => addItem(product)}
+                    onClick={() => tapProduct(product)}
                     title={soldOut ? 'Agotado' : product.name}
                     className="relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-ink-800/70 text-left transition-[transform,border-color,opacity] duration-100 active:scale-[0.97] active:border-saffron-400/50 disabled:opacity-45"
                   >
@@ -484,6 +575,11 @@ export default function POS() {
                     {!soldOut && low && (
                       <span className="absolute right-1.5 top-1.5 rounded-full bg-saffron-400 px-2 py-0.5 text-[0.65rem] font-bold text-ink-950">
                         Quedan {product.stock}
+                      </span>
+                    )}
+                    {hasExtras && !soldOut && (
+                      <span className="absolute left-1.5 top-1.5 rounded-full bg-jade-400/90 px-2 py-0.5 text-[0.6rem] font-bold tracking-wide text-ink-950 uppercase">
+                        + Extras
                       </span>
                     )}
 
@@ -708,6 +804,28 @@ export default function POS() {
                     aria-label={`Nota para ${line.name}`}
                     className="mt-2 w-full rounded-lg bg-ink-900/70 px-2.5 py-2 text-xs outline-none transition-colors focus:bg-ink-900"
                   />
+
+                  {/*
+                    Los atajos solo aparecen cuando la nota está vacía. Si el mesero ya
+                    escribió algo, agregar uno detrás dejaría "Sin cebollaTérmino medio" y
+                    eso ya no lo entiende ni quien lo lea en la comanda. Con la nota
+                    escrita se escriben a mano los casos raros, que son los que de todos
+                    modos no caben en ocho botones.
+                  */}
+                  {line.notes.trim() === '' && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {QUICK_NOTES.map((note) => (
+                        <button
+                          key={note}
+                          type="button"
+                          onClick={() => setNotes(line.id, note)}
+                          className="rounded-full bg-white/5 px-2 py-1 text-[0.65rem] text-bone-muted hover:bg-white/10 hover:text-bone"
+                        >
+                          {note}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -833,6 +951,20 @@ export default function POS() {
             setDiscountPin(adminPin)
             setShowDiscount(false)
           }}
+        />
+      )}
+
+      {extrasFor && (
+        <ModifierDialog
+          // La key hace que cambiar de producto monte un diálogo nuevo en vez de
+          // reaprovechar el anterior. Sin esto, abrir extras de una hamburguesa y
+          // cancelar, y después abrir los de un burro, mostraría los extras que se habían
+          // marcado en la hamburguesa.
+          key={extrasFor.product.id}
+          product={extrasFor.product}
+          groups={extrasFor.groups}
+          onConfirm={confirmModifiers}
+          onClose={() => setExtrasFor(null)}
         />
       )}
 

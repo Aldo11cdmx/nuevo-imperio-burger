@@ -20,6 +20,7 @@ export default function ReportsPanel({ adminPin }) {
   const [summary, setSummary] = useState([])
   const [top, setTop] = useState([])
   const [channels, setChannels] = useState([])
+  const [extras, setExtras] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -32,7 +33,7 @@ export default function ReportsPanel({ adminPin }) {
     // Las tres consultas van juntas en un Promise.all: son del mismo instante y de lo
     // mismo que el usuario está mirando. Pedirlas por separado haría que el total y el
     // ranking mostraran números de dos momentos distintos si entra una venta en medio.
-    const [summaryResult, topResult, channelResult] = await Promise.all([
+    const [summaryResult, topResult, channelResult, extrasResult] = await Promise.all([
       supabase.rpc('sales_summary', {
         p_admin_pin: adminPin,
         p_from: range.from,
@@ -48,6 +49,17 @@ export default function ReportsPanel({ adminPin }) {
         p_admin_pin: adminPin,
         p_from: range.from,
         p_to: range.to,
+      }),
+      // Los extras van aparte de top_products a propósito: ese ranking se arma con
+      // order_items.price, que es el precio BASE del producto. Si el queso se contara
+      // ahí, una hamburguesa de $105 con dos quesos de $15 aparecería como dos unidades
+      // de $105 y el reporte diría que se vendió queso cuando lo que se vendió fue
+      // hamburguesa.
+      supabase.rpc('top_modifiers', {
+        p_admin_pin: adminPin,
+        p_from: range.from,
+        p_to: range.to,
+        p_limit: 5,
       }),
     ])
 
@@ -72,6 +84,10 @@ export default function ReportsPanel({ adminPin }) {
     setSummary(summaryResult.data)
     setTop(topResult.data ?? [])
     setChannels(channelResult.data ?? [])
+    // Un fallo en el ranking de extras no tumba el reporte entero: el resumen y el top
+    // de productos siguen siendo válidos y son los que se revisan todos los días. Perder
+    // la pantalla completa por una lista secundaria sería un peor negocio.
+    setExtras(extrasResult.error ? [] : (extrasResult.data ?? []))
   }
 
   useEffect(() => {
@@ -203,6 +219,63 @@ export default function ReportsPanel({ adminPin }) {
           Se cuentan solo órdenes cobradas. Las anuladas quedan fuera del ranking porque no
           son venta, y los productos que ya no están en la carta conservan el nombre que
           tenían cuando se vendieron.
+        </p>
+      </section>
+
+      <section className={PANEL}>
+        <h2 className={`${PANEL_TITLE} mb-4`}>Top 5 extras del periodo</h2>
+
+        {loading && extras.length === 0 && <p className="py-10 text-center text-bone-muted">Cargando…</p>}
+
+        {!loading && extras.length === 0 && (
+          <p className="py-10 text-center text-sm text-bone-muted">
+            Nadie agregó extras en este rango de fechas.
+          </p>
+        )}
+
+        {!loading && extras.length > 0 && (
+          <ol className="space-y-2">
+            {extras.map((row) => {
+              // Misma escala que el ranking de productos: la barra se mide contra el
+              // líder, para que el segundo se vea claramente por debajo y no se vea casi
+              // tan lleno como él.
+              const max = Number(extras[0].units) || 1
+              const width = Math.max(6, Math.round((Number(row.units) / max) * 100))
+
+              return (
+                <li key={row.modifier_id} className="flex items-center gap-3">
+                  <span
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg font-ticket text-sm font-bold ${
+                      row.rank === 1 ? 'bg-jade-400 text-ink-900' : 'bg-white/10 text-bone-muted'
+                    }`}
+                  >
+                    {row.rank}
+                  </span>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="min-w-0 truncate text-sm font-semibold">{row.modifier_name}</span>
+                      <span className="shrink-0 font-ticket text-sm font-bold text-jade-300">
+                        {row.units}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
+                      <div className="h-full rounded-full bg-jade-400/70" style={{ width: `${width}%` }} />
+                    </div>
+                    <span className="text-xs text-bone-muted">
+                      {formatMXN(row.revenue)} · {Number(row.units) === 1 ? 'unidad' : 'unidades'}
+                    </span>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        )}
+
+        <p className="mt-4 flex items-start gap-2 text-xs text-bone-faint">
+          <TrendingUp size={14} className="mt-0.5 shrink-0" />
+          El extra se cuenta una vez por unidad de producto. Dos hamburguesas con queso
+          cuentan dos, no una, y el ingreso es lo que realmente entró por ese extra.
         </p>
       </section>
 

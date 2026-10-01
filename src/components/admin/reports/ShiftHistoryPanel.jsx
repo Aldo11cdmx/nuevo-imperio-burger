@@ -66,9 +66,10 @@ export default function ShiftHistoryPanel({ adminPin }) {
       )}
 
       <p className="mb-4 text-sm text-bone-muted">
-        Cada corte guarda el fondo con el que se abrió, lo que se vendió y lo que había en
-        la gaveta al cerrarlo. El esperado es el fondo más las ventas en efectivo: si no
-        cuadra, la diferencia queda anotada con su signo.
+        Cada corte guarda el fondo con el que se abrió, lo que se vendió, lo que salió de
+        caja chica y lo que había en la gaveta al cerrarlo. El esperado es el fondo más
+        las ventas en efectivo menos los gastos: si no cuadra, la diferencia queda anotada
+        con su signo.
       </p>
 
       {loading && (
@@ -132,6 +133,18 @@ export default function ShiftHistoryPanel({ adminPin }) {
                     <Cell label="Esperado" value={formatMXN(shift.expected_cash)} />
                     <Cell label="Contado" value={formatMXN(shift.counted_total)} />
                   </dl>
+
+                  {/*
+                    Los gastos solo salen si hubo. En un corte sin ellos la fila sería un
+                    cero que no dice nada, y el esperado de arriba ya los incluye: el
+                    espacio lo ocupa mejor una nota que sí explica el número.
+                  */}
+                  {Number(shift.expenses) !== 0 && (
+                    <p className="mt-2 rounded-lg bg-emberred-500/10 px-3 py-1.5 text-xs text-emberred-400">
+                      Gastos de caja: −{formatMXN(shift.expenses)}, ya descontados del
+                      efectivo esperado.
+                    </p>
+                  )}
 
                   {shift.shift_note && (
                     <p className="mt-2 rounded-lg bg-white/5 px-3 py-1.5 text-xs text-bone-muted">

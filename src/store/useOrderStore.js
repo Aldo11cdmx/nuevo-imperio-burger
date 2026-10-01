@@ -47,17 +47,79 @@ export const useOrderStore = create((set, get) => ({
 
   setOrders: (orders) => set({ orders }),
 
+  /**
+   * Trae las órdenes abiertas con sus renglones.
+   *
+   * `order_items(*)` trae también `station` y `status`, que son las dos columnas que
+   * hacen posible el KDS por estación: sin ellas la tarjeta no sabe qué renglones son
+   * de barra y cuáles son de cocina, ni cuáles falta preparar.
+   *
+   * Los extras van anidados porque cada renglón puede colgar de la orden: un producto
+   * no tiene extras propios.
+   */
   fetchOpenOrders: async () => {
     set({ loading: true, error: null })
 
     const { data, error } = await supabase
       .from('orders')
-      .select('*, order_items(*)')
+      .select('*, order_items(*, order_item_modifiers(name, price, quantity))')
       .in('status', OPEN_STATUSES)
       .order('code', { ascending: true })
 
     set({ loading: false, error: error?.message ?? null, orders: data ?? [] })
     return data ?? []
+  },
+
+  /**
+   * Avanza los renglones de UNA estación un paso: pending → in_progress → ready.
+   *
+   * La RPC devuelve el estado agregado de la orden y cuántos renglones quedan sin
+   * terminar en todas las estaciones, así que la tarjeta se actualiza sin releer la
+   * orden entera. Cuando una orden se queda sin renglones pendientes en ninguna
+   * estación, sale del tablero; la RPC no la borra, solo cambia su estado, y
+   * `remaining` es la señal para decidirlo aquí.
+   *
+   * @returns {Promise<boolean>} Si la orden dejó de tener trabajo pendiente.
+   */
+  advanceStationItems: async (orderId, station) => {
+    set({ busyOrderId: orderId, error: null })
+
+    const { pin } = useAuthStore.getState()
+    const { data, error } = await supabase.rpc('advance_station_items', {
+      p_pin: pin,
+      p_order_id: orderId,
+      p_station: station,
+    })
+
+    if (error) {
+      set({ busyOrderId: null, error: error.message })
+      return false
+    }
+
+    // Sin filas: el PIN no pasó. Es el mismo patrón que complete_order: la RPC no lanza
+    // excepción para no gastar el rate limit del intento fallido.
+    if (!data || data.length === 0) {
+      set({ busyOrderId: null, error: 'PIN no reconocido' })
+      return false
+    }
+
+    const [result] = data
+    const done = Number(result.remaining ?? 0) === 0
+
+    set((state) => ({
+      busyOrderId: null,
+      // Al quedar sin renglones pendientes, la orden sale del tablero. El resto de los
+      // estados de cobro (served, partially_paid) NO la sacan: una cuenta servida con
+      // la bebida pendiente sigue siendo una cuenta por cobrar, y eso lo decide el
+      // estado de la orden, no la cocina.
+      orders: done
+        ? state.orders.filter((order) => order.id !== orderId)
+        : state.orders.map((order) =>
+            order.id === orderId ? { ...order, status: result.order_status } : order,
+          ),
+    }))
+
+    return done
   },
 
   /**
@@ -201,10 +263,24 @@ export const useOrderStore = create((set, get) => ({
     }))
   },
 
+  /**
+   * Suscripción de Realtime para el tablero.
+   *
+   * Escucha `orders` y `order_items` por separado a propósito. Con solo `orders`, marcar
+   * una bebida lista en barra actualizaría order_items sin tocar la orden, y el tablero
+   * no se enteraría hasta que pasara otra cosa.
+   *
+   * Sin `filter` a propósito: cualquier cambio de estado de renglón obliga a releer, y
+   * en el caso importante —el renglón queda listo— un filtro tipo "status distinto de
+   * ready" justamente excluiría la actualización que hace falta.
+   */
   subscribe: (channelName = 'orders') => {
     const channel = supabase
       .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        get().fetchOpenOrders()
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'order_items' }, () => {
         get().fetchOpenOrders()
       })
       .subscribe()

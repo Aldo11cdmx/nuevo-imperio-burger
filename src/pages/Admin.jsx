@@ -3,6 +3,7 @@ import { KeyRound } from 'lucide-react'
 import EmployeesPanel from '../components/admin/EmployeesPanel'
 import InventoryPanel from '../components/admin/InventoryPanel'
 import MenuPanel from '../components/admin/MenuPanel'
+import ModifiersPanel from '../components/admin/ModifiersPanel'
 import OrderHistoryPanel from '../components/admin/reports/OrderHistoryPanel'
 import ReportsPanel from '../components/admin/reports/ReportsPanel'
 import ShiftHistoryPanel from '../components/admin/reports/ShiftHistoryPanel'
@@ -14,6 +15,7 @@ import supabase from '../lib/supabase'
 
 const TABS = [
   { id: 'menu', label: 'Menú' },
+  { id: 'modifiers', label: 'Extras' },
   { id: 'inventory', label: 'Inventario' },
   { id: 'employees', label: 'Empleados' },
   { id: 'reports', label: 'Reportes' },
@@ -123,6 +125,7 @@ export default function Admin() {
 
       <main className="flex-1 p-4 md:p-5">
         {tab === 'menu' && <MenuPanel adminPin={adminPin} />}
+        {tab === 'modifiers' && <ModifiersPanel adminPin={adminPin} />}
         {tab === 'inventory' && <InventoryPanel adminPin={adminPin} />}
         {tab === 'employees' && <EmployeesPanel adminPin={adminPin} />}
         {tab === 'reports' && <ReportsPanel adminPin={adminPin} />}
