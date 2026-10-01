@@ -40,6 +40,19 @@ export const useCartStore = create((set, get) => ({
   discount: null,
 
   /**
+   * Cuenta abierta a la que se le están AGREGANDO productos, o null si el carrito es
+   * un pedido nuevo.
+   *
+   * Los productos ya pedidos NO se meten en `lines`: viven aquí, aparte y solo para
+   * lectura. Es la forma de que "solo se puede agregar" sea una regla estructural y no
+   * algo que haya que recordar en cada botón: los controles de cantidad y de eliminar
+   * simplemente no existen para lo viejo, porque no está en el carrito. Si se metieran
+   * en `lines` habría que acordarse de bloquearlos, y un botón sin bloquear es una
+   * cuenta cobrada mal.
+   */
+  existingOrder: null,
+
+  /**
    * Tocar de nuevo un producto que ya está en la cuenta suma cantidad en vez de crear
    * otra línea. Con una carta de 65 productos, tres veces la misma hamburguesa es lo
    * más común y una línea por unidad llena el ticket de basura.
@@ -105,6 +118,65 @@ export const useCartStore = create((set, get) => ({
   setPlatform: (platform) => set({ platform }),
   setDiscount: (discount) => set({ discount }),
 
+  /**
+   * Carga una cuenta abierta para seguir agregando productos.
+   *
+   * El pedido nuevo en curso se descarta: mezclar productos de una cuenta anterior con
+   * los que el mesero está capturando sería imposible de explicar después en el corte.
+   *
+   * El saldo se calcula como total - paid_total aunque se mande ya hecho, porque el
+   * total de la orden pudo cambiar desde que se leyó.
+   */
+  loadExisting: (order) =>
+    set({
+      existingOrder: {
+        id: order.id,
+        code: order.code,
+        total: Number(order.total ?? 0),
+        paidTotal: Number(order.paid_total ?? 0),
+        // La comanda del agregado rotula la mesa y el tipo de pedido con estos, y no
+        // con los del carrito: la cuenta ya existe y su tipo no se está cambiando.
+        orderType: order.order_type ?? 'dine_in',
+        platform: order.platform ?? null,
+        tableNumber: order.table_number ?? null,
+        items: (order.order_items ?? []).map((item) => ({
+          id: item.id,
+          name: item.product_name,
+          quantity: item.quantity,
+          notes: item.notes ?? '',
+        })),
+      },
+      // La cuenta manda sobre el tipo de pedido: agregar no puede volver domicilio una
+      // orden que se creó en local, y el servidor no aceptaría la plataforma.
+      orderType: order.order_type ?? 'dine_in',
+      platform: order.platform ?? null,
+      tableNumber: order.table_number ?? null,
+      customerName: order.customer_name ?? '',
+      // El descuento no viaja al agregar: append_order_items no lo toca. Se aplica por
+      // su propio camino, sobre la cuenta completa.
+      discount: null,
+      lines: [],
+    }),
+
+  /** Sale del modo cuenta y vuelve a ser un pedido nuevo. */
+  exitExisting: () =>
+    set({
+      existingOrder: null,
+      lines: [],
+      customerName: '',
+      discount: null,
+    }),
+
+  /**
+   * Vacía el carrito sin salir de la cuenta a la que se está agregando.
+   *
+   * Es lo que pasa después de un agregado exitoso: los productos nuevos ya son parte de
+   * la cuenta y ya se mandaron a cocina, así que el carrito se limpia pero la cuenta
+   * sigue ahí para agregar otra cosa. Usar `clear()` aquí sacaría al mesero del modo
+   * cuenta y lo dejaría armando un pedido nuevo sobre la misma mesa.
+   */
+  clearLines: () => set({ lines: [], discount: null }),
+
   clear: () =>
     set({
       lines: [],
@@ -113,6 +185,7 @@ export const useCartStore = create((set, get) => ({
       orderType: 'dine_in',
       platform: null,
       discount: null,
+      existingOrder: null,
     }),
 
   /**

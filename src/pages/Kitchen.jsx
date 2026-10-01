@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { AlertTriangle, Loader2, Printer } from 'lucide-react'
 import ScreenHeader from '../components/ScreenHeader'
 import TouchButton from '../components/TouchButton'
 import SplitPaymentDialog from '../components/payment/SplitPaymentDialog'
 import { INPUT } from '../components/admin/fields'
 import { formatMXN } from '../lib/format'
+import { buildKitchenText, printReceipt } from '../lib/receipt'
 import { ORDER_STATUS, PAYMENT_METHODS, useOrderStore } from '../store/useOrderStore'
 import { useShiftStore } from '../store/useShiftStore'
 
@@ -62,6 +63,35 @@ function OrderCard({ order, now, busy, onAdvance, onComplete, onCancel, onSplit,
   const paid = Number(order.paid_total ?? 0)
   const remaining = Math.max(0, Math.round((total - paid) * 100) / 100)
 
+  /**
+   * Reimprime la comanda de esta orden COMPLETA.
+   *
+   * A diferencia de la comanda automática, que al agregar productos solo lleva lo
+   * nuevo, aquí va todo. Cuando alguien dice "a cocina no le llegó nada", el cocinero
+   * necesita la orden entera: si solo saliera el último agregado, no sabría qué
+   * falta por cocina.
+   *
+   * Es también la red de seguridad de la impresión automática del POS: si el navegador
+   * bloqueó el diálogo y la comanda nunca salió, aquí se recupera.
+   */
+  const printKitchen = () => {
+    printReceipt(
+      buildKitchenText({
+        code: order.code,
+        tableNumber: order.table_number,
+        orderType: order.order_type,
+        platform: order.platform,
+        at: order.created_at,
+        items: (order.order_items ?? []).map((item) => ({
+          name: item.product_name,
+          quantity: item.quantity,
+          notes: item.notes,
+        })),
+      }),
+      { fontSize: 18, bold: true },
+    )
+  }
+
   return (
     <article className="flex flex-col rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-glass-sm">
       <header className="mb-3 flex items-start justify-between gap-3">
@@ -78,11 +108,24 @@ function OrderCard({ order, now, busy, onAdvance, onComplete, onCancel, onSplit,
             </p>
           )}
         </div>
-        <span
-          className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold text-ink-950 ${STATUS_STYLE[order.status] ?? 'bg-bone-faint'}`}
-        >
-          {STATUS_LABEL[order.status] ?? order.status}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-semibold text-ink-950 ${STATUS_STYLE[order.status] ?? 'bg-bone-faint'}`}
+          >
+            {STATUS_LABEL[order.status] ?? order.status}
+          </span>
+          {/* Va en la cabecera y no abajo porque abajo ya viven Anular, Dividir y
+              Cobrar, y la fila se queda sin espacio útil en tablet. */}
+          <TouchButton
+            variant="ghost"
+            className="px-2 py-1 text-xs"
+            onClick={printKitchen}
+            aria-label={`Imprimir comanda de la orden ${order.code}`}
+          >
+            <Printer size={13} />
+            Comanda
+          </TouchButton>
+        </div>
       </header>
 
       <ul className="mb-4 flex-1 space-y-1.5 text-sm">

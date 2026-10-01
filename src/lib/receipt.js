@@ -1,12 +1,12 @@
 /**
- * Ticket térmico y envío por WhatsApp.
+ * Ticket térmico, comanda de cocina y envío por WhatsApp.
  *
  * La impresora es una END 80TEUX: papel de 80mm con 72mm IMPRIMIBLES a 203 DPI.
  * Eso da 576 dots de ancho por línea. En la fuente de 12x24 de la impresora caben
  * 42 caracteres por línea; es el número que fija LINE_WIDTH y del que depende el
  * ajuste de columnas.
  *
- * Dos decisiones que parecen detalles y no lo son:
+ * Cuatro decisiones que parecen detalles y no lo son:
  *
  * 1) Se imprime a 72mm, NO a 80mm. Si se pone 80mm Chrome escala el contenido para
  *    "rellenar" el papel y el texto sale borroso y desalineado. Este es el error
@@ -15,10 +15,31 @@
  * 2) Se quitan los acentos y la eñe. La fuente de la impresora es ASCII: "Camarón"
  *    puede salir como cÃ³mo o directamente roto. Un ticket que no se lee no sirve
  *    para nada, así que se sacrifica la ortografía antes que la información.
+ *
+ * 3) La comanda de cocina NO lleva precios. Se imprime en fuente doble (24 columnas,
+ *    18px) porque a la plancha, a dos metros y con ruido, un renglón a 11px no se
+ *    lee. Prácticamente todo el ancho del rollo se gasta en producto y notas.
+ *
+ * 4) La comanda ENVUELVE los nombres largos y el ticket de caja los recorta. Es
+ *    deliberado y es la diferencia más importante entre ambas: en el ticket de caja
+ *    el precio tiene que quedar donde el cajero y el cliente lo esperan aunque el
+ *    nombre se corte, pero un producto mal cortado en cocina se cocina mal.
  */
 
-/** Columnas por línea a 72mm con fuente 12x24. */
+/**
+ * Hay DOS plantillas y por eso hay DOS anchos.
+ *
+ * - LINE_WIDTH (42 columnas, 11px) es el ticket de caja: información densa, columnas
+ *   apretadas, precio pegado a la derecha.
+ * - KITCHEN_LINE_WIDTH (24 columnas, 18px negrita) es la comanda: lo mismo de papel
+ *   pero en fuente doble, que es lo que se usa en cocina para que se lea a un metro.
+ *
+ * El papel no cambia en ninguno de los dos casos: mismo rollo de 80mm, mismos 72mm
+ * imprimibles. Lo que cambia es cuántas columnas caben y, con ellas, el tamaño real
+ * de cada letra.
+ */
 export const LINE_WIDTH = 42
+export const KITCHEN_LINE_WIDTH = 24
 
 /** Ancho real de impresión. El papel mide 80; esto es lo que la impresora usa. */
 export const PRINT_WIDTH_MM = 72
@@ -51,23 +72,69 @@ export function toPrintable(text) {
  * Un nombre de producto largo sin recortar empuja el precio a la línea siguiente y
  * desarma toda la columna. Recortar el nombre es preferible: el precio siempre tiene
  * que estar donde el cajero y el cliente lo esperan.
+ *
+ * El ancho va por parámetro porque la comanda de cocina usa 24 columnas y el ticket
+ * de caja 42. Por omisión quedan 42, que es lo que espera el ticket de caja.
  */
-function columns(left, right) {
+function columns(left, right, width = LINE_WIDTH) {
   const l = toPrintable(left)
   const r = toPrintable(right)
-  const space = LINE_WIDTH - l.length - r.length
+  const space = width - l.length - r.length
   if (space >= 1) return l + ' '.repeat(space) + r
   // No cabe: se le da al nombre todo menos el precio y un espacio.
-  return l.slice(0, Math.max(1, LINE_WIDTH - r.length - 1)) + ' ' + r
+  return l.slice(0, Math.max(1, width - r.length - 1)) + ' ' + r
 }
 
-const center = (text) => {
-  const t = toPrintable(text).slice(0, LINE_WIDTH)
-  const left = Math.floor((LINE_WIDTH - t.length) / 2)
+const center = (text, width = LINE_WIDTH) => {
+  const t = toPrintable(text).slice(0, width)
+  const left = Math.floor((width - t.length) / 2)
   return ' '.repeat(Math.max(0, left)) + t
 }
 
-const rule = (char = '-') => char.repeat(LINE_WIDTH)
+const rule = (char = '-', width = LINE_WIDTH) => char.repeat(width)
+
+/**
+ * Parte un texto en renglones que quepan, en vez de cortarlo.
+ *
+ * Se corta en los espacios y se respeta `indent` en cada renglón. Si una palabra
+ * sola no cabe (una referencia larga, un nombre sin espacios) se parte a la fuerza:
+ * un renglón sin fin rompería el ancho y desalinearía todo lo que sigue.
+ *
+ * @param {string} text
+ * @param {number} width  Columnas totales del renglón, sangría incluida.
+ * @param {string} [indent]  Sangría de cada renglón, ya en espacios.
+ * @returns {string[]} Renglones, sin salto de línea al final.
+ */
+function wrap(text, width, indent = '') {
+  const words = toPrintable(text).split(/\s+/).filter(Boolean)
+  if (words.length === 0) return []
+
+  const limit = Math.max(1, width - indent.length)
+  const lines = []
+  let current = ''
+
+  for (let word of words) {
+    // La palabra no cabe en lo que queda del renglón, así que pasa al siguiente.
+    // Solo se parte a la fuerza cuando ella sola excede el ancho completo, que es el
+    // caso de los nombres sin espacios: partir "Hamburguesa Bufalo Chicken Burger"
+    // entre "Ch" y "icken" porque cupieron dos letras más sería peor que un renglón
+    // largo.
+    if (current && current.length + 1 + word.length > limit) {
+      lines.push(indent + current)
+      current = ''
+    }
+
+    while (word.length > limit) {
+      lines.push(indent + word.slice(0, limit))
+      word = word.slice(limit)
+    }
+
+    current = current ? `${current} ${word}` : word
+  }
+
+  if (current) lines.push(indent + current)
+  return lines
+}
 
 /** $1,234.56 sin el signo: el ticket va en pesos y el prefijo estorba al alinear. */
 const money = (value) =>
@@ -79,6 +146,12 @@ const orderTypeLabel = {
   dine_in: 'EN LOCAL',
   takeout: 'PARA LLEVAR',
   platform: 'DOMICILIO',
+}
+
+const platformLabel = {
+  uber: 'UBER',
+  rappi: 'RAPPI',
+  didi: 'DIDI',
 }
 
 /**
@@ -149,6 +222,88 @@ export function buildReceiptText({ order, payments = [], business = {}, staffNam
   return lines.join('\n')
 }
 
+/**
+ * Construye la COMANDA DE COCINA.
+ *
+ * A diferencia del ticket de caja, aquí NO hay precios, NO hay subtotal y NO hay
+ * total. En cocina el dinero no sirve de nada y sí estorba: cada renglón que no
+ * muestra un precio es un renglón que puede dedicarse al producto y a la nota.
+ *
+ * Va en 24 columnas con fuente doble (18px) porque se lee a distancia y con ruido.
+ *
+ * Envuelve los nombres en vez de recortarlos. A 24 columnas "Hamburguesa Búfalo
+ * Chicken Burger" ocupa tres renglones, y eso es justo lo que se necesita: un
+ * producto truncado se cocina mal, y en cocina equivocarse cuesta comida perdida.
+ *
+ * `kind` distingue los dos orígenes:
+ *   - 'new'   la orden se acaba de crear: va todo.
+ *   - 'addon' se agregaron productos a una cuenta ya abierta: va SOLO lo nuevo, para
+ *     que el cocinero no rehaga lo que ya tenía listo.
+ *
+ * @param {object} data
+ * @param {string} data.code        Folio de la orden.
+ * @param {string} [data.kind]      'new' (por omisión) o 'addon'.
+ * @param {number|null} [data.tableNumber]
+ * @param {string} [data.orderType]
+ * @param {string} [data.platform]
+ * @param {string} [data.at]        ISO de la hora; sin esto cae en el reloj actual.
+ * @param {Array}  data.items       [{ name, quantity, notes }]. Sin precio: no se usa.
+ */
+export function buildKitchenText({
+  code,
+  kind = 'new',
+  tableNumber = null,
+  orderType = 'dine_in',
+  platform = null,
+  at,
+  items = [],
+}) {
+  const width = KITCHEN_LINE_WIDTH
+  const lines = []
+  const isAddon = kind === 'addon'
+
+  lines.push(center(isAddon ? 'COMANDA - AGREGADO' : 'COMANDA DE COCINA', width))
+  lines.push(rule('=', width))
+
+  // La hora pegada a la derecha es lo que primero se busca en una comanda: lleva el
+  // mismo peso visual que el folio, y de paso ordena el renglón sin gastar columnas.
+  lines.push(columns(`#${code}`, formatTime(at), width))
+
+  // La plataforma califica al tipo de pedido y no ocupa un renglón aparte: si es
+  // domicilio por Rappi, "DOMICILIO RAPPI" es un solo dato que ya estaba en el tipo.
+  const typeText = orderTypeLabel[orderType] ?? 'EN LOCAL'
+  const withPlatform = platform ? `${typeText} ${platformLabel[platform] ?? ''}`.trim() : typeText
+  const left = tableNumber === null || tableNumber === undefined ? '' : `MESA ${tableNumber}`
+  lines.push(columns(left, withPlatform, width))
+
+  lines.push(rule('-', width))
+
+  for (const item of items) {
+    const quantity = Number(item.quantity ?? 1)
+    const nameLines = wrap(item.name, width, '   ')
+    if (nameLines.length === 0) continue
+
+    // La cantidad se pone solo en el primer renglón: repetirla arriba de cada línea
+    // del nombre confunde más de lo que ayuda cuando el nombre se parte.
+    lines.push(`${quantity}x ${nameLines[0].slice(3)}`)
+    lines.push(...nameLines.slice(1))
+
+    if (item.notes) lines.push(...wrap(item.notes, width, '   * '))
+  }
+
+  lines.push(rule('-', width))
+
+  return lines.join('\n')
+}
+
+/** "2026-10-01T21:30:00-06:00" -> "21:30". En la comanda la hora basta. */
+function formatTime(iso) {
+  const date = iso ? new Date(iso) : new Date()
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 /** "2026-10-01T21:30:00-06:00" -> "01/10/2026 21:30". */
 function formatStamp(iso) {
   if (!iso) return ''
@@ -176,9 +331,13 @@ function escapeHtml(text) {
  * un window.print() sobre la app imprimiría la interfaz entera. El iframe con
  * tamaño fijo es lo que hace que Chrome no recorte ni escale.
  *
+ * @param {string} text
+ * @param {object} [options]
+ * @param {number} [options.fontSize] 11 para el ticket de caja, 18 para la comanda.
+ * @param {boolean} [options.bold]   La comanda va en negrita por legibilidad.
  * @returns {boolean} false si el navegador bloqueó el diálogo de impresión.
  */
-export function printReceipt(text) {
+export function printReceipt(text, { fontSize = 11, bold = false } = {}) {
   const frame = document.createElement('iframe')
   frame.style.position = 'fixed'
   frame.style.right = '0'
@@ -199,7 +358,8 @@ export function printReceipt(text) {
       `@page { size: ${PRINT_WIDTH_MM}mm auto; margin: 0; }` +
       `html, body { width: ${PRINT_WIDTH_MM}mm; margin: 0; padding: 0; background: #fff; }` +
       `pre { margin: 0; padding: 2mm 0; font-family: 'Courier New', monospace;` +
-      ` font-size: 11px; line-height: 1.35; color: #000; white-space: pre; }` +
+      ` font-size: ${fontSize}px; font-weight: ${bold ? 700 : 400};` +
+      ` line-height: ${bold ? 1.25 : 1.35}; color: #000; white-space: pre; }` +
       `</style></head><body><pre>${escapeHtml(text)}</pre></body></html>`,
   )
   doc.close()
@@ -213,9 +373,16 @@ export function printReceipt(text) {
     printed = false
   }
 
-  // El iframe se retira después de que el usuario responda. Si se quita antes de
-  // imprimir, Chrome aborta el trabajo.
-  setTimeout(() => frame.remove(), 1000)
+  // El iframe NO se puede quitar a ciegas. print() no es bloqueante: vuelve en
+  // cuanto el diálogo abre, así que un setTimeout corto lo retira mientras el
+  // usuario sigue devant el diálogo de Android Print Service, y Chrome aborta el
+  // trabajo a media impresión.
+  //
+  // Se espera al evento afterprint y se deja un respaldo generoso para el caso de
+  // que el navegador no lo dispare nunca.
+  const cleanup = () => frame.remove()
+  frame.contentWindow.addEventListener('afterprint', cleanup, { once: true })
+  setTimeout(cleanup, 60000)
 
   return printed
 }
