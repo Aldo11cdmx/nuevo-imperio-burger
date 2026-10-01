@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
-import { Ban, Loader2, RefreshCw, Search } from 'lucide-react'
+import { Ban, Loader2, Printer, RefreshCw, Search } from 'lucide-react'
 import TouchButton from '../../TouchButton'
+import TicketPreview from '../../receipt/TicketPreview'
 import supabase from '../../../lib/supabase'
 import { formatMXN } from '../../../lib/format'
 import { INPUT, PANEL, PANEL_TITLE } from '../fields'
@@ -13,11 +14,15 @@ import {
 } from './reportHelpers'
 
 /**
- * Historial de órdenes con filtros y anulación.
+ * Historial de órdenes con filtros, reimpresión y anulación.
  *
  * La anulación vive aquí, y no solo en la pantalla de cocina, porque la mayoría de los
  * errores de cobro se detectan horas después: el ticket ya salió del tablero y sin este
  * historial no había forma de arreglarlo.
+ *
+ * La reimpresión también: una impresora térmica se come papel y los tickets se pierden.
+ * Volver a entrar a la orden por el tablero de cocina solo funciona si la cuenta sigue
+ * abierta, y un ticket de hace tres días ya está liquidado.
  */
 
 const STATUS_FILTERS = [
@@ -33,6 +38,7 @@ const STATUS_STYLE = {
   in_kitchen: 'bg-saffron-400/15 text-saffron-400',
   ready: 'bg-jade-500/15 text-jade-300',
   served: 'bg-white/10 text-bone-muted',
+  partially_paid: 'bg-saffron-400/15 text-saffron-400',
 }
 
 const STATUS_LABEL = {
@@ -42,6 +48,7 @@ const STATUS_LABEL = {
   in_kitchen: 'En cocina',
   ready: 'Lista',
   served: 'Servida',
+  partially_paid: 'Parcial',
 }
 
 const PAYMENT_LABEL = { cash: 'Efectivo', card: 'Tarjeta', transfer: 'Transferencia' }
@@ -57,6 +64,7 @@ export default function OrderHistoryPanel({ adminPin }) {
   const [detailFor, setDetailFor] = useState(null)
   const [detail, setDetail] = useState([])
   const [voiding, setVoiding] = useState(null)
+  const [reprint, setReprint] = useState(null)
 
   const presets = buildPresets()
 
@@ -108,6 +116,60 @@ export default function OrderHistoryPanel({ adminPin }) {
       return
     }
     setDetail(data ?? [])
+  }
+
+  /**
+   * Reimprimir un ticket ya cerrado.
+   *
+   * El ticket se arma con order_detail (las líneas) y list_order_payments (los cobros).
+   * Se piden las dos porque un ticket reimpreso que no muestre cómo se pagó no es el
+   * mismo ticket, y en una cuenta dividida esa diferencia es justo lo que importa.
+   */
+  const openReprint = async (order) => {
+    setError(null)
+    setReprint({ loading: true, order: null, payments: [] })
+
+    const [detailResult, paymentsResult] = await Promise.all([
+      supabase.rpc('order_detail', { p_admin_pin: adminPin, p_order_id: order.id }),
+      supabase.rpc('list_order_payments', { p_pin: adminPin, p_order_id: order.id }),
+    ])
+
+    if (detailResult.error) {
+      setError(detailResult.error.message)
+      setReprint(null)
+      return
+    }
+    if (!detailResult.data || detailResult.data.length === 0) {
+      setError('No se pudo leer el ticket')
+      setReprint(null)
+      return
+    }
+
+    const first = detailResult.data[0]
+    setReprint({
+      loading: false,
+      payments: (paymentsResult.data ?? []).map((row) => ({
+        id: row.payment_id,
+        amount: Number(row.amount),
+        method: row.method,
+        paidAt: row.paid_at,
+        paidBy: row.paid_by,
+        note: row.note,
+        reverted: row.reverted,
+      })),
+      order: {
+        ...first,
+        // order_detail repite los datos de la orden en cada renglón; con una sola fila
+        // es igual, pero un order_items vacío dejaría el ticket sin productos.
+        order_items: detailResult.data.map((line) => ({
+          id: line.item_id,
+          product_name: line.current_name ?? line.item_name,
+          quantity: Number(line.quantity),
+          price: Number(line.price),
+          notes: line.notes,
+        })),
+      },
+    })
   }
 
   return (
@@ -238,16 +300,26 @@ export default function OrderHistoryPanel({ adminPin }) {
                         {order.paid_at ? localDateTime(order.paid_at) : '—'}
                       </td>
                       <td className="px-2 py-3 text-right">
-                        {order.status !== 'cancelled' && (
+                        <div className="flex justify-end gap-1">
                           <TouchButton
                             variant="ghost"
-                            onClick={() => setVoiding(order)}
-                            aria-label={`Anular el ticket ${order.code}`}
-                            className="min-h-0 rounded-lg px-2.5 py-2 text-xs text-emberred-400"
+                            onClick={() => openReprint(order)}
+                            aria-label={`Reimprimir el ticket ${order.code}`}
+                            className="min-h-0 rounded-lg px-2.5 py-2 text-xs"
                           >
-                            <Ban size={15} />
+                            <Printer size={15} />
                           </TouchButton>
-                        )}
+                          {order.status !== 'cancelled' && (
+                            <TouchButton
+                              variant="ghost"
+                              onClick={() => setVoiding(order)}
+                              aria-label={`Anular el ticket ${order.code}`}
+                              className="min-h-0 rounded-lg px-2.5 py-2 text-xs text-emberred-400"
+                            >
+                              <Ban size={15} />
+                            </TouchButton>
+                          )}
+                        </div>
                       </td>
                     </tr>
 
@@ -299,6 +371,24 @@ export default function OrderHistoryPanel({ adminPin }) {
             load()
           }}
         />
+      )}
+
+      {reprint && !reprint.loading && reprint.order && (
+        <TicketPreview
+          order={reprint.order}
+          business={{ name: 'Nuevo Imperio Burger' }}
+          staffName={reprint.order.employee_name}
+          payments={reprint.payments}
+          onClose={() => setReprint(null)}
+        />
+      )}
+
+      {reprint?.loading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/80">
+          <p className="flex items-center gap-2 text-bone-muted">
+            <Loader2 className="animate-spin" size={18} /> Preparando ticket…
+          </p>
+        </div>
       )}
     </div>
   )

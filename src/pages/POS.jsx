@@ -4,11 +4,17 @@ import { AlertTriangle, Loader2, Minus, Plus, RefreshCw, Send, Trash2, Wallet } 
 import ScreenHeader from '../components/ScreenHeader'
 import Toast from '../components/Toast'
 import TouchButton from '../components/TouchButton'
+import DiscountDialog from '../components/payment/DiscountDialog'
 import { getGradient } from '../data/categories'
 import { PRICES_INCLUDE_TAX, formatMXN } from '../lib/format'
 import supabase from '../lib/supabase'
 import { useAuthStore } from '../store/useAuthStore'
-import { useCartStore } from '../store/useCartStore'
+import {
+  ORDER_TYPES,
+  PLATFORMS,
+  TAKEAWAY_TABLE,
+  useCartStore,
+} from '../store/useCartStore'
 import { selectCategories, useProductStore } from '../store/useProductStore'
 import { useShiftStore } from '../store/useShiftStore'
 
@@ -16,6 +22,11 @@ export default function POS() {
   const [category, setCategory] = useState('all')
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState(null)
+  const [showDiscount, setShowDiscount] = useState(false)
+  // El PIN de administrador que autoriza el descuento NO vive en el store del carrito:
+  // se queda aquí y se borra al mandar o vaciar la cuenta. Un PIN de gerente dentro
+  // de un store global quedaría disponible para cualquier componente que lo lea.
+  const [discountPin, setDiscountPin] = useState(null)
 
   const products = useProductStore((state) => state.products)
   const loadProducts = useProductStore((state) => state.load)
@@ -32,6 +43,9 @@ export default function POS() {
     lines,
     customerName,
     tableNumber,
+    orderType,
+    platform,
+    discount,
     addItem,
     increase,
     decrease,
@@ -39,12 +53,15 @@ export default function POS() {
     setNotes,
     setCustomer,
     setTable,
+    setOrderType,
+    setPlatform,
+    setDiscount,
     clear,
     totals,
   } = useCartStore()
   // itemCount son renglones del ticket ("N líneas"); unitCount son unidades cobradas.
   // El toast anuncia unidades porque es lo que el cliente acaba de pagar.
-  const { subtotal, tax, total, itemCount, unitCount } = totals()
+  const { subtotal, tax, total, discount: discountTotal, itemCount, unitCount } = totals()
 
   useEffect(() => {
     loadProducts()
@@ -66,6 +83,17 @@ export default function POS() {
     [category, products],
   )
 
+  /**
+   * A dónde va la orden si el cajero no escribió una mesa.
+   *
+   * "Para llevar" y los pedidos a domicilio se agrupan bajo la mesa virtual 999. Sin
+   * esto, un pedido para llevar sin mesa sería una orden con table_number NULL y no
+   * aparecería en el mapa de mesas. La barra (0) se escribe a mano, porque el campo
+   * de mesa sigue siendo la forma más rápida de decir "voy a la barra".
+   */
+  const effectiveTable =
+    tableNumber ?? (orderType === 'takeout' || orderType === 'platform' ? TAKEAWAY_TABLE : null)
+
   const sendToKitchen = async () => {
     if (!employee) {
       setToast({ tone: 'error', title: 'Sin sesión iniciada', detail: 'Ingresa con tu PIN para enviar la orden.' })
@@ -85,19 +113,23 @@ export default function POS() {
 
     setSubmitting(true)
 
-    // El carrito se manda por product_id y nada más. El precio, el IVA y el stock los
-    // calcula el servidor leyendo products: si la tablet tuviera abierto el precio, la
-    // cuenta de la gaveta no cuadraría con lo que el cliente pagó.
+    // El carrito se manda por product_id y nada más. El precio, el IVA, el stock y el
+    // descuento los calcula o valida el servidor: si la tablet tuviera abierto el
+    // precio, la cuenta de la gaveta no cuadraría con lo que el cliente pagó.
     const { data, error: orderError } = await supabase.rpc('create_order', {
       p_pin: pin,
       p_shift_id: shift.id,
-      p_table_number: tableNumber,
+      p_table_number: effectiveTable,
       p_customer_name: customerName.trim() || null,
       p_items: lines.map((line) => ({
         product_id: line.productId,
         quantity: line.quantity,
         notes: line.notes.trim() || null,
       })),
+      p_order_type: orderType,
+      p_platform: platform,
+      p_discount_amount: discountTotal,
+      p_admin_pin: discountPin,
     })
 
     if (orderError) {
@@ -114,6 +146,7 @@ export default function POS() {
     }
 
     clear()
+    setDiscountPin(null)
     setSubmitting(false)
     setToast({
       tone: 'success',
@@ -278,15 +311,44 @@ export default function POS() {
 
             <h2 className="mb-3 text-xs font-semibold tracking-[0.2em] text-bone-muted uppercase">Cuenta</h2>
 
+            <div className="mb-3 grid grid-cols-3 gap-1.5">
+              {ORDER_TYPES.map((type) => (
+                <TouchButton
+                  key={type.id}
+                  variant={orderType === type.id ? 'primary' : 'secondary'}
+                  onClick={() => setOrderType(type.id)}
+                  className="flex-col gap-0.5 py-2 text-[0.7rem]"
+                >
+                  <span className="text-sm">{type.emoji}</span>
+                  {type.label}
+                </TouchButton>
+              ))}
+            </div>
+
+            {orderType === 'platform' && (
+              <div className="mb-3 grid grid-cols-3 gap-1.5">
+                {PLATFORMS.map((item) => (
+                  <TouchButton
+                    key={item.id}
+                    variant={platform === item.id ? 'primary' : 'secondary'}
+                    onClick={() => setPlatform(item.id)}
+                    className="px-2 py-2 text-xs"
+                  >
+                    {item.label}
+                  </TouchButton>
+                ))}
+              </div>
+            )}
+
             <div className="mb-3 grid grid-cols-[86px_1fr] gap-2">
               <input
                 value={tableNumber ?? ''}
                 onChange={(event) => setTable(event.target.value === '' ? null : Number(event.target.value) || null)}
                 placeholder="Mesa"
                 type="number"
-                min="1"
+                min="0"
                 inputMode="numeric"
-                aria-label="Número de mesa"
+                aria-label="Número de mesa (0 es la barra)"
                 className="w-full rounded-xl border border-white/10 bg-ink-800/70 px-3 py-3 text-center outline-none transition-colors focus:border-saffron-400/60"
               />
               <input
@@ -358,6 +420,17 @@ export default function POS() {
                   <dd className="font-ticket">{formatMXN(tax)}</dd>
                 </div>
               )}
+              {discountTotal > 0 && (
+                <div className="flex items-baseline justify-between">
+                  <dt className="text-bone-muted">
+                    Descuento
+                    {discount?.reason && (
+                      <span className="ml-1 text-[0.7rem] italic opacity-70">{discount.reason}</span>
+                    )}
+                  </dt>
+                  <dd className="font-ticket text-emberred-400">-{formatMXN(discountTotal)}</dd>
+                </div>
+              )}
               <div className="flex items-baseline justify-between pt-1">
                 <dt className="text-base font-semibold">Total</dt>
                 <dd className="font-ticket text-2xl font-bold text-saffron-400">{formatMXN(total)}</dd>
@@ -368,8 +441,24 @@ export default function POS() {
             </dl>
 
             <div className="mt-4 flex gap-2">
-              <TouchButton variant="secondary" onClick={clear} className="flex-1" disabled={submitting}>
+              <TouchButton
+                variant="secondary"
+                onClick={() => {
+                  clear()
+                  setDiscountPin(null)
+                }}
+                className="flex-1"
+                disabled={submitting}
+              >
                 Vaciar
+              </TouchButton>
+              <TouchButton
+                variant="secondary"
+                onClick={() => setShowDiscount(true)}
+                className="flex-1"
+                disabled={submitting || lines.length === 0}
+              >
+                {discountTotal > 0 ? `-${formatMXN(discountTotal)}` : 'Descuento'}
               </TouchButton>
               <TouchButton
                 className="flex-[2]"
@@ -392,6 +481,18 @@ export default function POS() {
           </div>
         </aside>
       </div>
+
+      {showDiscount && (
+        <DiscountDialog
+          subtotal={subtotal}
+          onClose={() => setShowDiscount(false)}
+          onConfirm={({ amount, reason, adminPin }) => {
+            setDiscount({ amount, reason })
+            setDiscountPin(adminPin)
+            setShowDiscount(false)
+          }}
+        />
+      )}
 
       <Toast toast={toast} onDismiss={dismissToast} />
     </div>

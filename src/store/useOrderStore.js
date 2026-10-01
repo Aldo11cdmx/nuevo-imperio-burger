@@ -8,16 +8,25 @@ export const ORDER_STATUS = {
   IN_KITCHEN: 'in_kitchen',
   READY: 'ready',
   SERVED: 'served',
+  // Cobrada a medias: la orden ya salió de cocina pero le falta dinero. Sigue en
+  // el tablero para poder cobrarle el resto.
+  PARTIALLY_PAID: 'partially_paid',
   COMPLETED: 'completed',
   CANCELLED: 'cancelled',
 }
 
-/** Órdenes que siguen en el tablero de cocina: todo lo que aún no se cobró ni se anuló. */
+/**
+ * Órdenes que siguen en el tablero: todo lo que aún no se cobró del todo ni se
+ * anuló. partially_paid entra porque una cuenta dividida a medias todavía tiene
+ * un turno abierto que atender; si saliera del tablero, el resto quedaría sin
+ * forma de cobrarlo desde la cocina.
+ */
 export const OPEN_STATUSES = [
   ORDER_STATUS.PENDING,
   ORDER_STATUS.IN_KITCHEN,
   ORDER_STATUS.READY,
   ORDER_STATUS.SERVED,
+  ORDER_STATUS.PARTIALLY_PAID,
 ]
 
 /** Transiciones que no exigen método de pago. Cerrar la orden es un paso aparte. */
@@ -65,6 +74,12 @@ export const useOrderStore = create((set, get) => ({
     await get().patchOrder(orderId, { status: KITCHEN_FLOW[index + 1] })
   },
 
+  /**
+   * Cobro de una orden en un solo pago. Atajo que delega en add_payment (el
+   * servidor): cobra lo que falta y liquida. Se conserva para el camino simple
+   * (una persona, un método) en vez de obligar a siempre abrir el diálogo de
+   * división.
+   */
   completeOrder: async (orderId, paymentMethod) => {
     if (!PAYMENT_METHODS.includes(paymentMethod)) {
       set({ error: 'Método de pago no válido' })
@@ -101,10 +116,22 @@ export const useOrderStore = create((set, get) => ({
       return
     }
 
-    set((state) => ({
-      busyOrderId: null,
-      orders: state.orders.filter((order) => order.id !== orderId),
-    }))
+    // complete_order también cubre una cuenta a medias: si la orden estaba
+    // partially_paid, cobra el resto y la liquida (data = 'completed'), así que sale
+    // del tablero. Si por alguna razón no liquidó, se queda con el status devuelto.
+    if (data === 'completed' || data === 'cancelled') {
+      set((state) => ({
+        busyOrderId: null,
+        orders: state.orders.filter((order) => order.id !== orderId),
+      }))
+    } else {
+      set((state) => ({
+        busyOrderId: null,
+        orders: state.orders.map((order) =>
+          order.id === orderId ? { ...order, status: data } : order,
+        ),
+      }))
+    }
 
     // El corte X cambia con cada cobro. Se relee para que el fondo de la gaveta no quede
     // mostrando la venta anterior.

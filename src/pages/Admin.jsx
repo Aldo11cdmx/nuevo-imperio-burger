@@ -6,6 +6,7 @@ import MenuPanel from '../components/admin/MenuPanel'
 import OrderHistoryPanel from '../components/admin/reports/OrderHistoryPanel'
 import ReportsPanel from '../components/admin/reports/ReportsPanel'
 import ShiftHistoryPanel from '../components/admin/reports/ShiftHistoryPanel'
+import TableLayoutEditor from '../components/admin/tables/TableLayoutEditor'
 import TouchButton from '../components/TouchButton'
 import ScreenHeader from '../components/ScreenHeader'
 import { INPUT } from '../components/admin/fields'
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'reports', label: 'Reportes' },
   { id: 'shifts', label: 'Cortes' },
   { id: 'history', label: 'Órdenes' },
+  { id: 'tables', label: 'Mesas' },
 ]
 
 export default function Admin() {
@@ -126,6 +128,7 @@ export default function Admin() {
         {tab === 'reports' && <ReportsPanel adminPin={adminPin} />}
         {tab === 'shifts' && <ShiftHistoryPanel adminPin={adminPin} />}
         {tab === 'history' && <OrderHistoryPanel adminPin={adminPin} />}
+        {tab === 'tables' && <TableLayoutEditor adminPin={adminPin} />}
       </main>
     </div>
   )

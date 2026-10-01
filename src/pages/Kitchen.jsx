@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import ScreenHeader from '../components/ScreenHeader'
 import TouchButton from '../components/TouchButton'
+import SplitPaymentDialog from '../components/payment/SplitPaymentDialog'
 import { INPUT } from '../components/admin/fields'
 import { formatMXN } from '../lib/format'
 import { ORDER_STATUS, PAYMENT_METHODS, useOrderStore } from '../store/useOrderStore'
@@ -12,6 +13,7 @@ const NEXT_LABEL = {
   [ORDER_STATUS.IN_KITCHEN]: 'Marcar listo',
   [ORDER_STATUS.READY]: 'Servir',
   [ORDER_STATUS.SERVED]: 'Cobrar y cerrar',
+  [ORDER_STATUS.PARTIALLY_PAID]: 'Cobrar y cerrar',
 }
 
 const STATUS_STYLE = {
@@ -19,6 +21,7 @@ const STATUS_STYLE = {
   [ORDER_STATUS.IN_KITCHEN]: 'bg-saffron-400',
   [ORDER_STATUS.READY]: 'bg-jade-500',
   [ORDER_STATUS.SERVED]: 'bg-saffron-300',
+  [ORDER_STATUS.PARTIALLY_PAID]: 'bg-emberred-400',
 }
 
 const STATUS_LABEL = {
@@ -26,6 +29,7 @@ const STATUS_LABEL = {
   [ORDER_STATUS.IN_KITCHEN]: 'En cocina',
   [ORDER_STATUS.READY]: 'Listo',
   [ORDER_STATUS.SERVED]: 'Servido',
+  [ORDER_STATUS.PARTIALLY_PAID]: 'Parcial',
 }
 
 const PAYMENT_LABEL = {
@@ -45,13 +49,18 @@ function minutesSince(iso, now) {
   return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60000))
 }
 
-function OrderCard({ order, now, busy, onAdvance, onComplete, onCancel, canCharge }) {
+function OrderCard({ order, now, busy, onAdvance, onComplete, onCancel, onSplit, canCharge }) {
   const [paymentMethod, setPaymentMethod] = useState('cash')
   const [askingReason, setAskingReason] = useState(false)
   const [reason, setReason] = useState('')
   const isServed = order.status === ORDER_STATUS.SERVED
+  const isPartial = order.status === ORDER_STATUS.PARTIALLY_PAID
+  const isChargeable = isServed || isPartial
   const minutes = minutesSince(order.created_at, now)
   const isLate = minutes !== null && minutes >= 15
+  const total = Number(order.total ?? 0)
+  const paid = Number(order.paid_total ?? 0)
+  const remaining = Math.max(0, Math.round((total - paid) * 100) / 100)
 
   return (
     <article className="flex flex-col rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-glass-sm">
@@ -87,10 +96,17 @@ function OrderCard({ order, now, busy, onAdvance, onComplete, onCancel, canCharg
       </ul>
 
       <p className="mb-3 border-t border-dashed border-white/15 pt-2 text-right font-ticket text-sm font-bold">
-        {formatMXN(order.total)}
+        {isPartial ? (
+          <>
+            <span className="text-bone-muted line-through">{formatMXN(total)}</span>{' '}
+            <span className="text-emberred-400">faltan {formatMXN(remaining)}</span>
+          </>
+        ) : (
+          formatMXN(total)
+        )}
       </p>
 
-      {isServed && (
+      {isChargeable && (
         <div className="mb-3">
           {!canCharge ? (
             <p className="flex items-start gap-2 rounded-xl border border-saffron-400/40 bg-saffron-400/10 px-3 py-2.5 text-xs font-medium text-saffron-400">
@@ -98,18 +114,25 @@ function OrderCard({ order, now, busy, onAdvance, onComplete, onCancel, canCharg
               Orden servida. Se cobra desde el punto de venta, con caja abierta.
             </p>
           ) : (
-            <div className="flex gap-2">
-              {PAYMENT_METHODS.map((method) => (
-                <TouchButton
-                  key={method}
-                  variant={paymentMethod === method ? 'primary' : 'secondary'}
-                  onClick={() => setPaymentMethod(method)}
-                  className="flex-1 px-2 text-xs"
-                >
-                  {PAYMENT_LABEL[method]}
+            <>
+              <div className="flex gap-2">
+                {PAYMENT_METHODS.map((method) => (
+                  <TouchButton
+                    key={method}
+                    variant={paymentMethod === method ? 'primary' : 'secondary'}
+                    onClick={() => setPaymentMethod(method)}
+                    className="flex-1 px-2 text-xs"
+                  >
+                    {PAYMENT_LABEL[method]}
+                  </TouchButton>
+                ))}
+              </div>
+              {isPartial && (
+                <TouchButton variant="secondary" className="mt-2 w-full text-xs" onClick={() => onSplit(order)}>
+                  Dividir cuenta
                 </TouchButton>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -156,14 +179,24 @@ function OrderCard({ order, now, busy, onAdvance, onComplete, onCancel, canCharg
           <TouchButton variant="secondary" className="px-4" disabled={busy} onClick={() => setAskingReason(true)}>
             Anular
           </TouchButton>
-          {isServed ? (
-            <TouchButton
-              className="flex-1"
-              disabled={busy || !canCharge}
-              onClick={() => onComplete(order.id, paymentMethod)}
-            >
-              {canCharge ? NEXT_LABEL[ORDER_STATUS.SERVED] : 'Cobrar en POS'}
-            </TouchButton>
+          {isChargeable ? (
+            <>
+              <TouchButton
+                variant="secondary"
+                className="px-4"
+                disabled={busy || !canCharge}
+                onClick={() => onSplit(order)}
+              >
+                Dividir
+              </TouchButton>
+              <TouchButton
+                className="flex-1"
+                disabled={busy || !canCharge}
+                onClick={() => onComplete(order.id, paymentMethod)}
+              >
+                {canCharge ? (isPartial ? 'Cobrar resto' : 'Cobrar todo') : 'Cobrar en POS'}
+              </TouchButton>
+            </>
           ) : (
             <TouchButton
               className="flex-1"
@@ -182,6 +215,11 @@ function OrderCard({ order, now, busy, onAdvance, onComplete, onCancel, canCharg
 export default function Kitchen() {
   const { orders, loading, error, busyOrderId, fetchOpenOrders, advanceOrder, completeOrder, cancelOrder, subscribe } =
     useOrderStore()
+
+  // La orden cuyo diálogo de división está abierto. Vive aquí y no en la tarjeta
+  // porque el diálogo tapa el tablero: si se cerrara por Realtime mientras el cajero
+  // está cobrando, la orden desaparecería de debajo del dedo a mitad de la operación.
+  const [splitOrder, setSplitOrder] = useState(null)
 
   // Cobrar es la única acción que exige gaveta abierta. Cocina puede seguir avanzando
   // pedidos sin ella, así que el bloqueo se aplica solo al botón de cobro, no a la pantalla.
@@ -223,11 +261,20 @@ export default function Kitchen() {
               onAdvance={advanceOrder}
               onComplete={completeOrder}
               onCancel={cancelOrder}
+              onSplit={setSplitOrder}
               canCharge={Boolean(shift)}
             />
           ))}
         </div>
       </main>
+
+      {splitOrder && (
+        <SplitPaymentDialog
+          order={splitOrder}
+          onClose={() => setSplitOrder(null)}
+          onPaid={() => fetchOpenOrders()}
+        />
+      )}
     </div>
   )
 }

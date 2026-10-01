@@ -1,8 +1,9 @@
 import { Link, useLocation } from 'react-router-dom'
-import { ChefHat, Flame, LayoutGrid, ShieldCheck, Wallet } from 'lucide-react'
+import { ChefHat, Flame, LayoutGrid, ShieldCheck, Table2, Wallet } from 'lucide-react'
 
 const NAV = [
   { to: '/pos', label: 'Punto de venta', icon: LayoutGrid },
+  { to: '/tables', label: 'Mesas', icon: Table2 },
   { to: '/caja', label: 'Caja', icon: Wallet },
   { to: '/kitchen', label: 'Cocina', icon: ChefHat },
   { to: '/admin', label: 'Admin', icon: ShieldCheck },

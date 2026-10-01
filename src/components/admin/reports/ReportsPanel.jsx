@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Loader2, RefreshCw, TrendingUp } from 'lucide-react'
+import { Loader2, RefreshCw, ShoppingBag, TrendingUp } from 'lucide-react'
 import TouchButton from '../../TouchButton'
 import supabase from '../../../lib/supabase'
 import { formatMXN } from '../../../lib/format'
@@ -19,6 +19,7 @@ export default function ReportsPanel({ adminPin }) {
   const [range, setRange] = useState(() => defaultRange())
   const [summary, setSummary] = useState([])
   const [top, setTop] = useState([])
+  const [channels, setChannels] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -28,10 +29,10 @@ export default function ReportsPanel({ adminPin }) {
     setLoading(true)
     setError(null)
 
-    // Las dos consultas van juntas en un Promise.all: son del mismo instante y de lo
+    // Las tres consultas van juntas en un Promise.all: son del mismo instante y de lo
     // mismo que el usuario está mirando. Pedirlas por separado haría que el total y el
     // ranking mostraran números de dos momentos distintos si entra una venta en medio.
-    const [summaryResult, topResult] = await Promise.all([
+    const [summaryResult, topResult, channelResult] = await Promise.all([
       supabase.rpc('sales_summary', {
         p_admin_pin: adminPin,
         p_from: range.from,
@@ -42,6 +43,11 @@ export default function ReportsPanel({ adminPin }) {
         p_from: range.from,
         p_to: range.to,
         p_limit: 5,
+      }),
+      supabase.rpc('sales_by_channel', {
+        p_admin_pin: adminPin,
+        p_from: range.from,
+        p_to: range.to,
       }),
     ])
 
@@ -65,6 +71,7 @@ export default function ReportsPanel({ adminPin }) {
 
     setSummary(summaryResult.data)
     setTop(topResult.data ?? [])
+    setChannels(channelResult.data ?? [])
   }
 
   useEffect(() => {
@@ -198,8 +205,71 @@ export default function ReportsPanel({ adminPin }) {
           tenían cuando se vendieron.
         </p>
       </section>
+
+      <section className={PANEL}>
+        <h2 className={`${PANEL_TITLE} mb-4`}>Ventas por canal</h2>
+
+        {!loading && channels.length === 0 && (
+          <p className="py-8 text-center text-sm text-bone-muted">
+            Sin ventas cobradas en este rango de fechas.
+          </p>
+        )}
+
+        {loading && channels.length === 0 && <p className="py-10 text-center text-bone-muted">Cargando…</p>}
+
+        {!loading && channels.length > 0 && (
+          <>
+            <ul className="space-y-2">
+              {channels.map((row) => {
+                const label =
+                  row.order_type === 'platform'
+                    ? (PLATFORM_LABEL[row.platform] ?? row.platform ?? 'Domicilio')
+                    : (CHANNEL_LABEL[row.order_type] ?? row.order_type)
+
+                return (
+                  <li
+                    key={`${row.order_type}-${row.platform ?? 'none'}`}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-800/50 px-4 py-3"
+                  >
+                    <span className="text-sm font-semibold">{label}</span>
+                    <span className="text-right">
+                      <span className="block font-ticket text-base font-bold text-saffron-400">
+                        {formatMXN(row.total_sales)}
+                      </span>
+                      <span className="block text-xs text-bone-muted">
+                        {row.tickets} {row.tickets === 1 ? 'pedido' : 'pedidos'}
+                        {Number(row.discount_total) > 0 &&
+                          ` · ${formatMXN(row.discount_total)} en descuentos`}
+                      </span>
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+
+            <p className="mt-4 flex items-start gap-2 text-xs text-bone-faint">
+              <ShoppingBag size={14} className="mt-0.5 shrink-0" />
+              Separa lo que se consumió en salón de lo que salió para llevar o por
+              plataforma. Los descuentos se muestran aparte porque son dinero que se
+              dejó de cobrar, no venta.
+            </p>
+          </>
+        )}
+      </section>
     </div>
   )
+}
+
+const CHANNEL_LABEL = {
+  dine_in: 'En local',
+  takeout: 'Para llevar',
+  platform: 'Domicilio',
+}
+
+const PLATFORM_LABEL = {
+  uber: 'Uber',
+  rappi: 'Rappi',
+  didi: 'DiDi',
 }
 
 function Metric({ title, value, tickets, average, highlight = false }) {

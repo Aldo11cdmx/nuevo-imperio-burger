@@ -4,6 +4,7 @@ import POS from './pages/POS'
 import Kitchen from './pages/Kitchen'
 import Admin from './pages/Admin'
 import Cashier from './pages/Cashier'
+import Tables from './pages/Tables'
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/pos" element={<POS />} />
+        <Route path="/tables" element={<Tables />} />
         <Route path="/caja" element={<Cashier />} />
         <Route path="/kitchen" element={<Kitchen />} />
         <Route path="/admin" element={<Admin />} />
