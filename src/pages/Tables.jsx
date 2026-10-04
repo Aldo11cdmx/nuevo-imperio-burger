@@ -1,16 +1,23 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { LayoutGrid, Loader2 } from 'lucide-react'
+import { LayoutGrid, Loader2, Printer } from 'lucide-react'
 import ScreenHeader from '../components/ScreenHeader'
 import TouchButton from '../components/TouchButton'
 import Toast from '../components/Toast'
 import TableMap from '../components/tables/TableMap'
 import SplitPaymentDialog from '../components/payment/SplitPaymentDialog'
+import TicketPreview from '../components/receipt/TicketPreview';
 import { PANEL, PANEL_TITLE } from '../components/admin/fields'
 import { formatMXN } from '../lib/format'
 import supabase from '../lib/supabase'
 import { useAuthStore } from '../store/useAuthStore'
 import { tableStateStyle, useTableStore } from '../store/useTableStore'
+
+const BUSINESS = {
+  name: 'Nuevo Imperio Burger',
+  tagline: 'Vuelve pronto',
+}
+
 
 const FILTERS = [
   { id: 'all', label: 'Todas' },
@@ -29,12 +36,18 @@ const FILTERS = [
 export default function Tables() {
   const { tables, loading, error, fetchTables, subscribe } = useTableStore()
   const pin = useAuthStore((state) => state.pin)
+  const staffName = useAuthStore((state) => state.employee?.full_name ?? '')
   const [filter, setFilter] = useState('all')
   const [selected, setSelected] = useState(null)
   const [openOrders, setOpenOrders] = useState([])
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [paying, setPaying] = useState(null)
   const [toast, setToast] = useState(null)
+  // La pre-cuenta se previsualiza antes de imprimir: se abre como un portal a body
+  // dentro de TablePreview, igual que el TicketPreview dentro del cobro. Vivir aquí y
+  // no dentro de cada <li> es lo que permite que el portal no se regenere al cambiar de
+  // mesa mientras se revisa el ticket.
+  const [preview, setPreview] = useState(null)
 
   useEffect(() => {
     fetchTables()
@@ -54,7 +67,9 @@ export default function Tables() {
     setOrdersLoading(true)
     const { data } = await supabase
       .from('orders')
-      .select('*, order_items(*)')
+      .select(
+        '*, order_items(*, order_item_modifiers(*))'
+      )
       .eq('table_number', table.number)
       .in('status', ['served', 'partially_paid'])
       .order('code', { ascending: true })
@@ -162,22 +177,29 @@ export default function Tables() {
                         <p className="mb-2 text-xs text-bone-muted">
                           {order.customer_name ?? 'Mostrador'} · {order.order_items?.length ?? 0} líneas
                         </p>
-                        <TouchButton
-                          className="w-full text-xs"
-                          onClick={() => {
-                            if (!pin) {
-                              setToast({
-                                tone: 'error',
-                                title: 'Sin sesión',
-                                detail: 'Ingresa con tu PIN para cobrar.',
-                              })
-                              return
-                            }
-                            setPaying(order)
-                          }}
-                        >
-                          Cobrar
-                        </TouchButton>
+                      <TouchButton
+                        className="w-full text-xs"
+                        onClick={() => setPreview(order)}
+                      >
+                        <Printer size={14} />
+                        Pre-cuenta
+                      </TouchButton>
+                      <TouchButton
+                        className="w-full text-xs"
+                        onClick={() => {
+                          if (!pin) {
+                            setToast({
+                              tone: 'error',
+                              title: 'Sin sesión',
+                              detail: 'Ingresa con tu PIN para cobrar.',
+                            })
+                            return
+                          }
+                          setPaying(order)
+                        }}
+                      >
+                        Cobrar
+                      </TouchButton>
                       </li>
                     )
                   })}
@@ -203,6 +225,15 @@ export default function Tables() {
             await openTable(selected)
             setToast({ tone: 'success', title: `Cobro a la orden #${paying.code}` })
           }}
+        />
+      )}
+
+      {preview && (
+        <TicketPreview
+          order={preview}
+          business={BUSINESS}
+          staffName={staffName}
+          onClose={() => setPreview(null)}
         />
       )}
 
