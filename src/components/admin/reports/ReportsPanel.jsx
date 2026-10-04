@@ -5,7 +5,7 @@ import supabase from '../../../lib/supabase'
 import { formatMXN } from '../../../lib/format'
 import { PANEL, PANEL_TITLE } from '../fields'
 import RangePicker from './RangePicker'
-import { buildPresets, defaultRange, rangeLabel } from './reportHelpers'
+import { buildPresets, defaultRange, rangeLabel, toInputDate } from './reportHelpers'
 
 /**
  * Reportes de venta: resumen del periodo y ranking de productos.
@@ -19,6 +19,7 @@ export default function ReportsPanel({ adminPin }) {
   const [range, setRange] = useState(() => defaultRange())
   const [summary, setSummary] = useState([])
   const [top, setTop] = useState([])
+  const [topToday, setTopToday] = useState(null)
   const [channels, setChannels] = useState([])
   const [extras, setExtras] = useState([])
   const [loading, setLoading] = useState(true)
@@ -33,7 +34,7 @@ export default function ReportsPanel({ adminPin }) {
     // Las tres consultas van juntas en un Promise.all: son del mismo instante y de lo
     // mismo que el usuario está mirando. Pedirlas por separado haría que el total y el
     // ranking mostraran números de dos momentos distintos si entra una venta en medio.
-    const [summaryResult, topResult, channelResult, extrasResult] = await Promise.all([
+    const [summaryResult, topResult, channelResult, extrasResult, topTodayResult] = await Promise.all([
       supabase.rpc('sales_summary', {
         p_admin_pin: adminPin,
         p_from: range.from,
@@ -61,6 +62,14 @@ export default function ReportsPanel({ adminPin }) {
         p_to: range.to,
         p_limit: 5,
       }),
+      // Producto del día: top_products con rango = hoy. Es el mismo RPC, así que la
+      // métrica y el ranking coinciden en cómo cuentan unidades.
+      supabase.rpc('top_products', {
+        p_admin_pin: adminPin,
+        p_from: toInputDate(new Date()),
+        p_to: toInputDate(new Date()),
+        p_limit: 1,
+      }),
     ])
 
     setLoading(false)
@@ -83,6 +92,7 @@ export default function ReportsPanel({ adminPin }) {
 
     setSummary(summaryResult.data)
     setTop(topResult.data ?? [])
+    setTopToday(topTodayResult?.data?.[0] ?? null)
     setChannels(channelResult.data ?? [])
     // Un fallo en el ranking de extras no tumba el reporte entero: el resumen y el top
     // de productos siguen siendo válidos y son los que se revisan todos los días. Perder
@@ -144,6 +154,29 @@ export default function ReportsPanel({ adminPin }) {
                 tickets={selected?.ticket_count ?? 0}
                 average={selected?.ticket_average ?? 0}
               />
+            </div>
+
+            {/* Producto Más Vendido del Día: destacado al lado de "Hoy". */}
+            <div className="mt-4 rounded-2xl border border-jade-500/30 bg-jade-500/10 px-4 py-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <div>
+                  <p className="text-[0.7rem] tracking-wider text-bone-muted uppercase">
+                    Producto del día
+                  </p>
+                  <p className="font-ticket text-lg font-bold text-jade-400">
+                    {topToday?.product_name ?? 'Sin ventas hoy'}
+                  </p>
+                  <p className="text-xs text-bone-muted">
+                    {formatMXN(topToday?.revenue ?? 0)} en {' '}
+                    {Number(topToday?.units ?? 0) === 1 ? '1 unidad' : `${Number(topToday?.units ?? 0)} unidades`}
+                  </p>
+                </div>
+                {topToday?.units != null && Number(topToday?.units) > 0 && (
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-jade-400 font-ticket text-base font-bold text-ink-950">
+                    {topToday.units}
+                  </span>
+                )}
+              </div>
             </div>
 
             {selected && (

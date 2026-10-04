@@ -38,6 +38,21 @@ export const KITCHEN_FLOW = [
   ORDER_STATUS.SERVED,
 ]
 
+/**
+ * Estados que la pantalla de Cocina muestra como "preparación activa".
+ *
+ * `ready` sale deliberadamente: cuando una orden pasa a 'ready' (cocina lista) se
+ * marca con un aviso para el mesero y desaparece del tablero activo, pero la orden
+ * se queda en la base de datos para consultarse y cobrarse desde Tables.jsx. Si el
+ * KDS volviera a incluir 'ready', un refresco de Realtime traería la comanda de vuelta
+ * justo después de marcarla lista. No incluye tampoco 'served'/'partially_paid':
+ * son estados de cobro, no de preparación.
+ */
+export const KDS_VIEW_STATUSES = [
+  ORDER_STATUS.PENDING,
+  ORDER_STATUS.IN_KITCHEN,
+]
+
 export const PAYMENT_METHODS = ['cash', 'card', 'transfer']
 
 export const useOrderStore = create((set, get) => ({
@@ -64,7 +79,7 @@ export const useOrderStore = create((set, get) => ({
     const { data, error } = await supabase
       .from('orders')
       .select('*, order_items(*, order_item_modifiers(name, price, quantity))')
-      .in('status', OPEN_STATUSES)
+      .in('status', KDS_VIEW_STATUSES)
       .order('code', { ascending: true })
 
     set({ loading: false, error: error?.message ?? null, orders: data ?? [] })

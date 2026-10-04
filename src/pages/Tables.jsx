@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { LayoutGrid, Loader2, ReceiptText, Wallet } from 'lucide-react'
+import { LayoutGrid, Bell, Loader2, ReceiptText, Wallet } from 'lucide-react'
 import ScreenHeader from '../components/ScreenHeader'
 import TouchButton from '../components/TouchButton'
 import Toast from '../components/Toast'
@@ -9,10 +9,11 @@ import SplitPaymentDialog from '../components/payment/SplitPaymentDialog'
 import TicketPreview from '../components/receipt/TicketPreview';
 import { PANEL, PANEL_TITLE } from '../components/admin/fields'
 import { formatMXN } from '../lib/format'
+import { friendlyError } from '../lib/errors'
 import supabase from '../lib/supabase'
 import { useAuthStore } from '../store/useAuthStore'
 import { tableStateStyle, useTableStore } from '../store/useTableStore'
-import { OPEN_STATUSES } from '../store/useOrderStore'
+import { OPEN_STATUSES, ORDER_STATUS } from '../store/useOrderStore'
 import { useCartStore } from '../store/useCartStore'
 
 const BUSINESS = {
@@ -54,11 +55,30 @@ export default function Tables() {
   const [paying, setPaying] = useState(null)
   const [payingTab, setPayingTab] = useState('single')
   const [toast, setToast] = useState(null)
+  const [unread, setUnread] = useState(0)
   const navigate = useNavigate()
 
   const addDishesToTable = (order) => {
     useCartStore.getState().setTable(order.table_number)
     navigate('/pos')
+  }
+
+  const markServed = async (order) => {
+    if (!pin) {
+      setToast({ tone: 'error', title: 'Sin sesión', detail: 'Ingresa con tu PIN.' })
+      return
+    }
+    const { error } = await supabase.rpc('advance_order', {
+      p_pin: pin,
+      p_order_id: order.id,
+      p_to_status: 'served',
+    })
+    if (error) {
+      setToast({ tone: 'error', title: 'No se pudo marcar', detail: friendlyError(error) })
+      return
+    }
+    await fetchTables()
+    await openTable(selected)
   }
   // La pre-cuenta se previsualiza antes de imprimir: se abre como un portal a body
   // dentro de TablePreview, igual que el TicketPreview dentro del cobro. Vivir aquí y
@@ -70,6 +90,30 @@ export default function Tables() {
     fetchTables()
     return subscribe()
   }, [fetchTables, subscribe])
+
+  // Notificaciones de Realtime: cuando el cocinero marca una orden Lista, el mesero
+  // ve un anuncio. El contador de no leídas se mantiene en memoria solo por las que
+  // llegan mientras la pantalla está abierta; marcar leídas pone el contador a cero.
+  useEffect(() => {
+    const channel = supabase
+      .channel('public:notifications')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications' },
+        (payload) => {
+          const n = payload.new
+          if (n && n.type === 'ready') {
+            setToast({ tone: 'info', title: 'Orden lista', detail: n.message })
+            setUnread((u) => u + 1)
+          }
+        },
+      )
+      .subscribe()
+
+    return () => {
+      if (channel) supabase.removeChannel(channel)
+    }
+  }, [])
 
   // Al tocar una mesa con pedidos se leen sus órdenes abiertas. Se consulta por
   // table_number directamente: el RPC del mapa no trae los uuid y makes otra ida
@@ -110,12 +154,30 @@ export default function Tables() {
         title="Mesas"
         subtitle={`${tables.filter((t) => t.state !== 'free').length} mesas ocupadas`}
         right={
-          <Link
-            to="/"
-            className="shrink-0 rounded-xl px-3 py-2 text-sm font-semibold text-bone-muted transition-colors hover:text-bone"
-          >
-            Menú
-          </Link>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={async () => {
+                await supabase.rpc('mark_notifications_read').catch(() => {})
+                setUnread(0)
+              }}
+              className="relative shrink-0 rounded-xl p-2 text-bone-muted hover:text-bone"
+              aria-label="Notificaciones"
+            >
+              <Bell size={18} />
+              {unread > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emberred-500 px-1 text-[10px] font-bold text-white">
+                  {unread}
+                </span>
+              )}
+            </button>
+            <Link
+              to="/"
+              className="shrink-0 rounded-xl px-3 py-2 text-sm font-semibold text-bone-muted transition-colors hover:text-bone"
+            >
+              Menú
+            </Link>
+          </div>
         }
       />
 
@@ -271,21 +333,31 @@ export default function Tables() {
                            >
                              Dividir cuenta
                            </TouchButton>
-                           <TouchButton
-                             className="text-xs"
-                             onClick={() => setPreview(order)}
-                           >
-                             <ReceiptText size={14} /> Pre-cuenta
-                           </TouchButton>
-                         </div>
+                            <TouchButton
+                              className="text-xs"
+                              onClick={() => setPreview(order)}
+                            >
+                              <ReceiptText size={14} /> Pre-cuenta
+                            </TouchButton>
+                          </div>
 
-                         <button
-                           type="button"
-                           onClick={() => addDishesToTable(order)}
-                           className="mt-2 w-full text-center text-xs font-medium text-saffron-400 hover:underline"
-                         >
-                           Agregar más platillos
-                         </button>
+                          {order.status === ORDER_STATUS.READY && (
+                            <TouchButton
+                              variant="secondary"
+                              className="mb-2 w-full text-xs"
+                              onClick={() => markServed(order)}
+                            >
+                              Marcar como servido
+                            </TouchButton>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => addDishesToTable(order)}
+                            className="mt-2 w-full text-center text-xs font-medium text-saffron-400 hover:underline"
+                          >
+                            Agregar más platillos
+                          </button>
                        </li>
                      )
                    })}

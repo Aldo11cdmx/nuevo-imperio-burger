@@ -48,11 +48,11 @@ const STATUS_STYLE = {
 }
 
 const STATUS_LABEL = {
-  [ORDER_STATUS.PENDING]: 'Pendiente',
-  [ORDER_STATUS.IN_KITCHEN]: 'En cocina',
+  [ORDER_STATUS.PENDING]: 'Preparando',
+  [ORDER_STATUS.IN_KITCHEN]: 'Preparando',
   [ORDER_STATUS.READY]: 'Listo',
   [ORDER_STATUS.SERVED]: 'Servido',
-  [ORDER_STATUS.PARTIALLY_PAID]: 'Parcial',
+  [ORDER_STATUS.PARTIALLY_PAID]: 'A medias',
 }
 
 const PAYMENT_LABEL = {
