@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { LayoutGrid, Loader2, Printer } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { LayoutGrid, Loader2, ReceiptText, Wallet } from 'lucide-react'
 import ScreenHeader from '../components/ScreenHeader'
 import TouchButton from '../components/TouchButton'
 import Toast from '../components/Toast'
@@ -12,10 +12,20 @@ import { formatMXN } from '../lib/format'
 import supabase from '../lib/supabase'
 import { useAuthStore } from '../store/useAuthStore'
 import { tableStateStyle, useTableStore } from '../store/useTableStore'
+import { OPEN_STATUSES } from '../store/useOrderStore'
+import { useCartStore } from '../store/useCartStore'
 
 const BUSINESS = {
   name: 'Nuevo Imperio Burger',
   tagline: 'Vuelve pronto',
+}
+
+const STATUS_LABEL = {
+  pending: 'Tomando',
+  in_kitchen: 'En cocina',
+  ready: 'Listo',
+  served: 'Servido',
+  partially_paid: 'A medias',
 }
 
 
@@ -42,7 +52,14 @@ export default function Tables() {
   const [openOrders, setOpenOrders] = useState([])
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [paying, setPaying] = useState(null)
+  const [payingTab, setPayingTab] = useState('single')
   const [toast, setToast] = useState(null)
+  const navigate = useNavigate()
+
+  const addDishesToTable = (order) => {
+    useCartStore.getState().setTable(order.table_number)
+    navigate('/pos')
+  }
   // La pre-cuenta se previsualiza antes de imprimir: se abre como un portal a body
   // dentro de TablePreview, igual que el TicketPreview dentro del cobro. Vivir aquí y
   // no dentro de cada <li> es lo que permite que el portal no se regenere al cambiar de
@@ -70,8 +87,8 @@ export default function Tables() {
       .select(
         '*, order_items(*, order_item_modifiers(*))'
       )
-      .eq('table_number', table.number)
-      .in('status', ['served', 'partially_paid'])
+        .eq('table_number', table.number)
+      .in('status', OPEN_STATUSES)
       .order('code', { ascending: true })
 
     setOpenOrders(data ?? [])
@@ -163,46 +180,115 @@ export default function Tables() {
 
               {!ordersLoading && openOrders.length > 0 && (
                 <ul className="space-y-2">
-                  {openOrders.map((order) => {
-                    const remaining = Math.max(
-                      0,
-                      Math.round((order.total - (order.paid_total ?? 0)) * 100) / 100,
-                    )
-                    return (
-                      <li key={order.id} className="rounded-xl border border-white/10 bg-ink-800/60 p-3">
-                        <div className="mb-1 flex items-center justify-between text-sm">
-                          <span className="font-ticket font-bold text-saffron-400">#{order.code}</span>
-                          <span className="font-ticket font-bold">{formatMXN(remaining)}</span>
-                        </div>
-                        <p className="mb-2 text-xs text-bone-muted">
-                          {order.customer_name ?? 'Mostrador'} · {order.order_items?.length ?? 0} líneas
-                        </p>
-                      <TouchButton
-                        className="w-full text-xs"
-                        onClick={() => setPreview(order)}
-                      >
-                        <Printer size={14} />
-                        Pre-cuenta
-                      </TouchButton>
-                      <TouchButton
-                        className="w-full text-xs"
-                        onClick={() => {
-                          if (!pin) {
-                            setToast({
-                              tone: 'error',
-                              title: 'Sin sesión',
-                              detail: 'Ingresa con tu PIN para cobrar.',
-                            })
-                            return
-                          }
-                          setPaying(order)
-                        }}
-                      >
-                        Cobrar
-                      </TouchButton>
-                      </li>
-                    )
-                  })}
+                   {openOrders.map((order) => {
+                     const remaining = Math.max(
+                       0,
+                       Math.round((order.total - (order.paid_total ?? 0)) * 100) / 100,
+                     )
+                     const items = order.order_items ?? []
+                     return (
+                       <li key={order.id} className="rounded-xl border border-white/10 bg-ink-800/60 p-3">
+                         <div className="mb-1 flex items-center justify-between text-sm">
+                           <div className="flex items-center gap-1.5">
+                             <span className="font-ticket font-bold text-saffron-400">#{order.code}</span>
+                             <span className="text-xs text-bone-muted">{STATUS_LABEL[order.status] ?? order.status}</span>
+                           </div>
+                           <span className="font-ticket font-bold">{formatMXN(remaining)}</span>
+                         </div>
+
+                         <p className="mb-2 text-xs text-bone-muted">
+                           {order.customer_name ?? 'Mostrador'} · {items.length} {items.length === 1 ? 'línea' : 'líneas'}
+                         </p>
+
+                         <ul className="mb-3 space-y-1">
+                           {items.map((it) => (
+                             <li key={it.id} className="flex justify-between text-xs">
+                               <span>
+                                 <span className="font-medium">{it.quantity}× </span>
+                                 {it.product_name}
+                                 {it.notes && (
+                                   <span className="block text-[10px] italic text-bone-muted">{it.notes}</span>
+                                 )}
+                                 {it.order_item_modifiers?.map((m) => (
+                                   <span key={m.id} className="block text-[10px] text-bone-muted">
+                                     {'+ '}{m.quantity}x {m.name}
+                                   </span>
+                                 ))}
+                               </span>
+                               <span className="text-bone-200">
+                                 {formatMXN(
+                                   Math.round(
+                                     ((it.price ?? 0) * it.quantity +
+                                       (it.order_item_modifiers ?? []).reduce(
+                                         (a, m) => a + (m.price ?? 0) * (m.quantity ?? 0),
+                                         0,
+                                       )) *
+                                       100,
+                                   ) / 100,
+                                 )}
+                               </span>
+                             </li>
+                           ))}
+                         </ul>
+
+                         <div className="mb-3 flex justify-between border-t border-white/10 pt-2 text-sm">
+                           <span className="text-bone-muted">Falta</span>
+                           <span className="font-ticket font-bold text-saffron-400">{formatMXN(remaining)}</span>
+                         </div>
+
+                         <div className="grid grid-cols-3 gap-1.5">
+                           <TouchButton
+                             className="text-xs"
+                             onClick={() => {
+                               if (!pin) {
+                                 setToast({
+                                   tone: 'error',
+                                   title: 'Sin sesión',
+                                   detail: 'Ingresa con tu PIN para cobrar.',
+                                 })
+                                 return
+                               }
+                               setPayingTab('single')
+                               setPaying(order)
+                             }}
+                           >
+                             <Wallet size={14} /> Cobrar
+                           </TouchButton>
+                           <TouchButton
+                             className="text-xs"
+                             onClick={() => {
+                               if (!pin) {
+                                 setToast({
+                                   tone: 'error',
+                                   title: 'Sin sesión',
+                                   detail: 'Ingresa con tu PIN para cobrar.',
+                                 })
+                                 return
+                               }
+                               setPayingTab('parts')
+                               setPaying(order)
+                             }}
+                           >
+                             Dividir cuenta
+                           </TouchButton>
+                           <TouchButton
+                             className="text-xs"
+                             onClick={() => setPreview(order)}
+                           >
+                             <ReceiptText size={14} /> Pre-cuenta
+                           </TouchButton>
+                         </div>
+
+                         <button
+                           type="button"
+                           onClick={() => addDishesToTable(order)}
+                           className="mt-2 w-full text-center text-xs font-medium text-saffron-400 hover:underline"
+                         >
+                           Agregar más platillos
+                         </button>
+                       </li>
+                     )
+                   })}
                 </ul>
               )}
             </aside>
@@ -219,7 +305,8 @@ export default function Tables() {
       {paying && (
         <SplitPaymentDialog
           order={paying}
-          onClose={() => setPaying(null)}
+          defaultTab={payingTab}
+          onClose={() => { setPaying(null); setPayingTab('single') }}
           onPaid={async () => {
             await fetchTables()
             await openTable(selected)

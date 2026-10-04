@@ -38,8 +38,8 @@ const METHOD_OPTIONS = [
  * La orden se liquida sola cuando lo pagado cubre el total: el servidor pasa la
  * orden a completed al llegar a total - 0.01 y la UI deja de aceptar cobros.
  */
-export default function SplitPaymentDialog({ order, onClose, onPaid }) {
-  const [tab, setTab] = useState('single')
+export default function SplitPaymentDialog({ order, onClose, onPaid, defaultTab = 'single' }) {
+  const [tab, setTab] = useState(defaultTab)
 
   // ---- estado de la cuenta ------------------------------------------------------
   // El diálogo NO confía en order.total/order.paid_total: la orden sale del tablero
