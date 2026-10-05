@@ -1,0 +1,17 @@
+{
+  "appId": "com.nuevoimperio.burger",
+  "appName": "Nuevo Imperio Burger",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": false
+    },
+    "KeepAwake": {
+      "keepAwake": true
+    }
+  }
+}

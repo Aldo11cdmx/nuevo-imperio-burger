@@ -20,6 +20,18 @@ dist-ssr
 # Agent tooling and local credentials
 .kilo/
 
+# Android (Capacitor) build artifacts & signing
+android/app/build
+android/.gradle
+android/build
+android/app/src/main/assets/public
+android/local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+keystore.properties
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

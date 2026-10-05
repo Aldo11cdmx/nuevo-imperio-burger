@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Nuevo Imperio Burger</string>
+    <string name="title_activity_main">Nuevo Imperio Burger</string>
+    <string name="package_name">com.nuevoimperio.burger</string>
+    <string name="custom_url_scheme">com.nuevoimperio.burger</string>
+</resources>
