@@ -17,5 +17,12 @@ const mxn = new Intl.NumberFormat('es-MX', {
 
 export const formatMXN = (value) => mxn.format(value)
 
-/** Las columnas numéricas son numeric(12,2): se redondea antes de enviar. */
-export const round2 = (value) => Math.round(value * 100) / 100
+/**
+ * Las columnas numéricas son numeric(12,2): se redondea antes de enviar.
+ *
+ * Se suma Number.EPSILON antes de escalar: sin eso 1.005 * 100 = 100.499999...
+ * y Math.round lo lleva a 100, produciendo 1.00 en vez de 1.01. El error no es
+ * grande, pero en un ticket es un centavo de más o de menos y en este negocio
+ * los centavos suman.
+ */
+export const round2 = (value) => Math.round((value + Number.EPSILON) * 100) / 100

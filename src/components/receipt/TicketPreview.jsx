@@ -10,6 +10,7 @@ import {
   whatsappReceiptUrl,
 } from '../../lib/receipt'
 import { usePaymentStore } from '../../store/usePaymentStore'
+import { CONNECTION_EVENTS } from '../../store/useConnectionStore'
 
 /**
  * Vista del ticket antes de imprimir.
@@ -69,7 +70,17 @@ export default function TicketPreview({
   const busy = providedPayments ? loadingPayments : loading
 
   useEffect(() => {
-    if (providedPayments) return undefined
+    if (!onClose) return undefined
+    const onBack = (e) => {
+      e.preventDefault()
+      onClose()
+    }
+    window.addEventListener(CONNECTION_EVENTS.BACK, onBack)
+    return () => window.removeEventListener(CONNECTION_EVENTS.BACK, onBack)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose])
+
+  useEffect(() => {
 
     // `alive` evita(setState) en un componente que ya se cerró: la promesa puede
     // resolverse después del cierre del diálogo y React ya no tendría a quién avisar.

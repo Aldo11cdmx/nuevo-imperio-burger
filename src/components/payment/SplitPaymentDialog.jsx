@@ -6,6 +6,7 @@ import TicketPreview from '../receipt/TicketPreview'
 import { formatMXN, round2 } from '../../lib/format'
 import { useAuthStore } from '../../store/useAuthStore'
 import { PAYMENT_LABELS, usePaymentStore } from '../../store/usePaymentStore'
+import { CONNECTION_EVENTS } from '../../store/useConnectionStore'
 
 /**
  * Datos del negocio que salen impresos en el ticket.
@@ -56,6 +57,17 @@ export default function SplitPaymentDialog({ order, onClose, onPaid, defaultTab 
     if (next) setPaid(next.paid)
     return next
   }
+
+  // Cierra el diálogo con el botón físico de "atrás" de la tablet.
+  useEffect(() => {
+    if (!onClose) return undefined
+    const onBack = (e) => {
+      e.preventDefault()
+      onClose()
+    }
+    window.addEventListener(CONNECTION_EVENTS.BACK, onBack)
+    return () => window.removeEventListener(CONNECTION_EVENTS.BACK, onBack)
+  }, [onClose])
 
   useEffect(() => {
     refreshStatus()

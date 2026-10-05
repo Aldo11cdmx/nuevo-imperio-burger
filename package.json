@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "cap:sync": "npm run build && npx cap sync android",
     "cap:open": "npx cap open android",
-    "assets": "npx capacitor-assets generate --android",
+    "assets": "node scripts/generate-placeholder-assets.js && npx capacitor-assets generate --android",
     "android:debug": "npm run cap:sync && cd android && ./gradlew assembleDebug",
     "android:release": "npm run cap:sync && cd android && ./gradlew assembleRelease",
     "android:bundle": "npm run cap:sync && cd android && ./gradlew bundleRelease",

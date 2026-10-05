@@ -9,14 +9,17 @@
      pintado queda garantizado: canvas opaco, luego los halos, luego el contenido. */
   html {
     -webkit-tap-highlight-color: transparent;
+    /* pull-to-refresh de Android desaparece con esto en el root. */
+    overscroll-behavior: none;
     @apply bg-ink-950;
   }
 
   body {
     @apply font-sans text-bone antialiased;
 
-    /* Evita el rebote de scroll al arrastrar en pantallas táctiles, sin quitar scroll. */
-    overscroll-behavior-y: none;
+    /* Evita el rebote de scroll al arrastrar en pantallas táctiles, sin quitar scroll.
+       `none` (no solo `contain`) bloquea el gesto de pull-to-refresh completo. */
+    overscroll-behavior: none;
   }
 
   /* El glassmorphism solo se percibe si hay algo detrás que difuminar. Estos halos

@@ -923,6 +923,7 @@ export default function POS() {
               <TouchButton
                 className="flex-[2]"
                 onClick={sendToKitchen}
+                touchDebounce={400}
                 disabled={lines.length === 0 || submitting || !employee || !shift}
               >
                 {submitting ? (

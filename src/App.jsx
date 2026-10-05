@@ -1,4 +1,7 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
+import { useBackButton } from './hooks/useBackButton'
+import ConnectionBadge from './components/ui/ConnectionBadge'
 import Login from './pages/Login'
 import POS from './pages/POS'
 import Kitchen from './pages/Kitchen'
@@ -6,16 +9,81 @@ import Admin from './pages/Admin'
 import Cashier from './pages/Cashier'
 import Tables from './pages/Tables'
 
+function LayoutShell({ children }) {
+  useBackButton()
+  return (
+    <>
+      {children}
+      <ConnectionBadge />
+    </>
+  )
+}
+
 export default function App() {
+  const location = useLocation()
+
+  useEffect(() => {
+    // Cada navegación táctil en una tablet POS puede quedar pillada por el
+    // zoom de webkit; forzamos el viewport a escala 1 para evitar saltos.
+    const vp = document.querySelector('meta[name="viewport"]')
+    if (vp) {
+      const c = vp.getAttribute('content') || ''
+      const sinZoom = c.replace(/user-scalable=[^,]+/, 'user-scalable=no')
+      vp.setAttribute('content', sinZoom)
+    }
+  }, [location.pathname])
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Login />} />
-        <Route path="/pos" element={<POS />} />
-        <Route path="/tables" element={<Tables />} />
-        <Route path="/caja" element={<Cashier />} />
-        <Route path="/kitchen" element={<Kitchen />} />
-        <Route path="/admin" element={<Admin />} />
+        <Route
+          path="/"
+          element={
+            <LayoutShell>
+              <Login />
+            </LayoutShell>
+          }
+        />
+        <Route
+          path="/pos"
+          element={
+            <LayoutShell>
+              <POS />
+            </LayoutShell>
+          }
+        />
+        <Route
+          path="/tables"
+          element={
+            <LayoutShell>
+              <Tables />
+            </LayoutShell>
+          }
+        />
+        <Route
+          path="/caja"
+          element={
+            <LayoutShell>
+              <Cashier />
+            </LayoutShell>
+          }
+        />
+        <Route
+          path="/kitchen"
+          element={
+            <LayoutShell>
+              <Kitchen />
+            </LayoutShell>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <LayoutShell>
+              <Admin />
+            </LayoutShell>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

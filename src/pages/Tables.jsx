@@ -8,7 +8,7 @@ import TableMap from '../components/tables/TableMap'
 import SplitPaymentDialog from '../components/payment/SplitPaymentDialog'
 import TicketPreview from '../components/receipt/TicketPreview';
 import { PANEL, PANEL_TITLE } from '../components/admin/fields'
-import { formatMXN } from '../lib/format'
+import { formatMXN, round2 } from '../lib/format'
 import { friendlyError } from '../lib/errors'
 import supabase from '../lib/supabase'
 import { useAuthStore } from '../store/useAuthStore'
@@ -154,30 +154,30 @@ export default function Tables() {
         title="Mesas"
         subtitle={`${tables.filter((t) => t.state !== 'free').length} mesas ocupadas`}
         right={
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={async () => {
-                await supabase.rpc('mark_notifications_read').catch(() => {})
-                setUnread(0)
-              }}
-              className="relative shrink-0 rounded-xl p-2 text-bone-muted hover:text-bone"
-              aria-label="Notificaciones"
-            >
-              <Bell size={18} />
-              {unread > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emberred-500 px-1 text-[10px] font-bold text-white">
-                  {unread}
-                </span>
-              )}
-            </button>
-            <Link
-              to="/"
-              className="shrink-0 rounded-xl px-3 py-2 text-sm font-semibold text-bone-muted transition-colors hover:text-bone"
-            >
-              Menú
-            </Link>
-          </div>
+            <div className="flex items-center gap-1">
+             <button
+               type="button"
+               onClick={async () => {
+                 await supabase.rpc('mark_notifications_read').catch(() => {})
+                 setUnread(0)
+               }}
+               className="relative min-h-touch min-w-touch shrink-0 rounded-xl p-3 text-bone-muted hover:text-bone"
+               aria-label="Notificaciones"
+             >
+               <Bell size={20} />
+               {unread > 0 && (
+                 <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emberred-500 px-1 text-[10px] font-bold text-white">
+                   {unread}
+                 </span>
+               )}
+             </button>
+             <Link
+               to="/"
+               className="min-h-touch min-w-touch shrink-0 rounded-xl px-4 py-2 text-sm font-semibold text-bone-muted transition-colors hover:text-bone"
+             >
+               Menú
+             </Link>
+           </div>
         }
       />
 
@@ -243,10 +243,7 @@ export default function Tables() {
               {!ordersLoading && openOrders.length > 0 && (
                 <ul className="space-y-2">
                    {openOrders.map((order) => {
-                     const remaining = Math.max(
-                       0,
-                       Math.round((order.total - (order.paid_total ?? 0)) * 100) / 100,
-                     )
+                     const remaining = Math.max(0, round2(order.total - (order.paid_total ?? 0)))
                      const items = order.order_items ?? []
                      return (
                        <li key={order.id} className="rounded-xl border border-white/10 bg-ink-800/60 p-3">
@@ -277,18 +274,15 @@ export default function Tables() {
                                    </span>
                                  ))}
                                </span>
-                               <span className="text-bone-200">
-                                 {formatMXN(
-                                   Math.round(
-                                     ((it.price ?? 0) * it.quantity +
-                                       (it.order_item_modifiers ?? []).reduce(
-                                         (a, m) => a + (m.price ?? 0) * (m.quantity ?? 0),
-                                         0,
-                                       )) *
-                                       100,
-                                   ) / 100,
-                                 )}
-                               </span>
+                                <span className="text-bone-200">
+                                  {formatMXN(round2(
+                                    (it.price ?? 0) * it.quantity +
+                                      (it.order_item_modifiers ?? []).reduce(
+                                        (a, m) => a + (m.price ?? 0) * (m.quantity ?? 0),
+                                        0,
+                                      ),
+                                  ))}
+                                </span>
                              </li>
                            ))}
                          </ul>
@@ -300,39 +294,41 @@ export default function Tables() {
 
                          <div className="grid grid-cols-3 gap-1.5">
                            <TouchButton
-                             className="text-xs"
-                             onClick={() => {
-                               if (!pin) {
-                                 setToast({
-                                   tone: 'error',
-                                   title: 'Sin sesión',
-                                   detail: 'Ingresa con tu PIN para cobrar.',
-                                 })
-                                 return
-                               }
-                               setPayingTab('single')
-                               setPaying(order)
-                             }}
-                           >
-                             <Wallet size={14} /> Cobrar
-                           </TouchButton>
-                           <TouchButton
-                             className="text-xs"
-                             onClick={() => {
-                               if (!pin) {
-                                 setToast({
-                                   tone: 'error',
-                                   title: 'Sin sesión',
-                                   detail: 'Ingresa con tu PIN para cobrar.',
-                                 })
-                                 return
-                               }
-                               setPayingTab('parts')
-                               setPaying(order)
-                             }}
-                           >
-                             Dividir cuenta
-                           </TouchButton>
+                              className="text-xs"
+                              touchDebounce={400}
+                              onClick={() => {
+                                if (!pin) {
+                                  setToast({
+                                    tone: 'error',
+                                    title: 'Sin sesión',
+                                    detail: 'Ingresa con tu PIN para cobrar.',
+                                  })
+                                  return
+                                }
+                                setPayingTab('single')
+                                setPaying(order)
+                              }}
+                            >
+                              <Wallet size={14} /> Cobrar
+                            </TouchButton>
+                            <TouchButton
+                              className="text-xs"
+                              touchDebounce={400}
+                              onClick={() => {
+                                if (!pin) {
+                                  setToast({
+                                    tone: 'error',
+                                    title: 'Sin sesión',
+                                    detail: 'Ingresa con tu PIN para cobrar.',
+                                  })
+                                  return
+                                }
+                                setPayingTab('parts')
+                                setPaying(order)
+                              }}
+                            >
+                              Dividir cuenta
+                            </TouchButton>
                             <TouchButton
                               className="text-xs"
                               onClick={() => setPreview(order)}
