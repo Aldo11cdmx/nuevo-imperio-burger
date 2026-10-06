@@ -1,103 +1,86 @@
-﻿import { useEffect, useRef, useState } from 'react'
-import { Loader2, Network, Printer, X, Zap } from 'lucide-react'
-import TouchButton from './TouchButton'
-import { INPUT } from './admin/fields'
+﻿import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { X, Printer, Wifi, Check, AlertCircle, GripHorizontal } from 'lucide-react'
 import { usePrinterStore } from '../store/usePrinterStore'
 import { imprimirTicket } from '../lib/thermalPrint'
 import { playBeep, playError, playSuccess } from '../lib/audio'
 
 export default function PrinterSettingsModal({ onClose, onToast }) {
-  const { printerIp, printerPort, autoPrint, loadConfig, updateConfig } = usePrinterStore()
-  const [ip, setIp] = useState(printerIp)
-  const [port, setPort] = useState(String(printerPort))
-  const [auto, setAuto] = useState(autoPrint)
+  const { printerIp, printerPort, autoPrint, updateConfig } = usePrinterStore()
+
+  const [ip, setIp] = useState(printerIp || '192.168.1.213')
+  const [port, setPort] = useState(String(printerPort || 9100))
+  const [auto, setAuto] = useState(autoPrint ?? true)
+
   const [testing, setTesting] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [testStatus, setTestStatus] = useState(null)
 
   const [position, setPosition] = useState(null)
-  const draggingRef = useRef(false)
-  const dragOffsetRef = useRef({ x: 0, y: 0 })
+  const isDraggingRef = useRef(false)
+  const dragStartRef = useRef({ x: 0, y: 0 })
   const modalRef = useRef(null)
 
   useEffect(() => {
-    loadConfig()
-  }, [loadConfig])
-
-  useEffect(() => {
-    setIp(printerIp)
-    setPort(String(printerPort))
-    setAuto(autoPrint)
-  }, [printerIp, printerPort, autoPrint])
+    if (modalRef.current) {
+      const rect = modalRef.current.getBoundingClientRect()
+      const centerX = Math.max(16, (window.innerWidth - rect.width) / 2)
+      const centerY = Math.max(16, (window.innerHeight - rect.height) / 2)
+      setPosition({ x: centerX, y: centerY })
+    }
+  }, [])
 
   useEffect(() => {
     const handleKey = (e) => {
       if (e.key === 'Escape') onClose?.()
     }
-
-    document.addEventListener('keydown', handleKey)
-
-    return () => {
-      document.removeEventListener('keydown', handleKey)
-    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
   }, [onClose])
+
+  const handlePointerDown = (e) => {
+    if (e.button !== 0) return
+    if (e.target.closest('button') || e.target.closest('input')) return
+
+    isDraggingRef.current = true
+    dragStartRef.current = {
+      x: e.clientX - (position?.x || 0),
+      y: e.clientY - (position?.y || 0),
+    }
+
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
+  const handlePointerMove = (e) => {
+    if (!isDraggingRef.current || !modalRef.current) return
+
+    const rect = modalRef.current.getBoundingClientRect()
+    const rawX = e.clientX - dragStartRef.current.x
+    const rawY = e.clientY - dragStartRef.current.y
+
+    const maxX = Math.max(16, window.innerWidth - rect.width - 16)
+    const maxY = Math.max(16, window.innerHeight - rect.height - 16)
+
+    const boundedX = Math.min(Math.max(16, rawX), maxX)
+    const boundedY = Math.min(Math.max(16, rawY), maxY)
+
+    setPosition({ x: boundedX, y: boundedY })
+  }
+
+  const handlePointerUp = (e) => {
+    if (isDraggingRef.current) {
+      isDraggingRef.current = false
+      e.currentTarget.releasePointerCapture?.(e.pointerId)
+    }
+  }
 
   const handleBackdropClick = (e) => {
     if (e.target === e.currentTarget) onClose?.()
   }
 
-  const handleDragStart = (e) => {
-    if (e.button !== undefined && e.button !== 0) return
-
-    const modal = modalRef.current
-    if (!modal) return
-
-    const rect = modal.getBoundingClientRect()
-
-    draggingRef.current = true
-
-    dragOffsetRef.current = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    }
-
-    e.currentTarget.setPointerCapture?.(e.pointerId)
-  }
-
-  const handleDragMove = (e) => {
-    if (!draggingRef.current) return
-
-    const modal = modalRef.current
-    if (!modal) return
-
-    const rect = modal.getBoundingClientRect()
-
-    const maxX = Math.max(8, window.innerWidth - rect.width - 8)
-    const maxY = Math.max(8, window.innerHeight - rect.height - 8)
-
-    const nextX = Math.min(
-      maxX,
-      Math.max(8, e.clientX - dragOffsetRef.current.x)
-    )
-
-    const nextY = Math.min(
-      maxY,
-      Math.max(8, e.clientY - dragOffsetRef.current.y)
-    )
-
-    setPosition({
-      x: nextX,
-      y: nextY,
-    })
-  }
-
-  const handleDragEnd = (e) => {
-    draggingRef.current = false
-    e.currentTarget.releasePointerCapture?.(e.pointerId)
-  }
-
   const handleTestPrint = async () => {
     playBeep()
     setTesting(true)
+    setTestStatus(null)
 
     const testText =
       '================================\n' +
@@ -105,237 +88,178 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
       '================================\n' +
       'TEST DE CONEXION TCP / RAW\n' +
       `IP: ${ip.trim() || '192.168.1.213'} : ${port || 9100}\n` +
-      `Fecha: ${new Date().toLocaleString()}\n` +
+      `Fecha: ${new Date().toLocaleString('es-MX')}\n` +
       'Impresion nativa exitosa!\n' +
       '================================\n\n\n\n'
 
     try {
-      await updateConfig({
-        printerIp: ip.trim() || '192.168.1.213',
-        printerPort: Number(port) || 9100,
-        autoPrint: auto,
-      })
+      await updateConfig({ printerIp: ip.trim() || '192.168.1.213', printerPort: Number(port) || 9100, autoPrint: auto })
+      const successNative = await imprimirTicket(testText, 'native')
 
-      let success = await imprimirTicket(testText, 'native')
-
-      if (!success) {
-        success = await imprimirTicket(testText, 'auto')
-      }
-
-      if (success) {
+      if (successNative) {
         playSuccess()
-
-        if (onToast) {
-          onToast({
-            tone: 'success',
-            title: 'Impresion enviada con exito!',
-            detail: `Conectado a ${ip}:${port} (o servicio local)`,
-          })
-        }
+        setTestStatus({ success: true, message: 'Impresion enviada con exito!' })
       } else {
-        playError()
-
-        if (onToast) {
-          onToast({
-            tone: 'error',
-            title: 'Fallo en la prueba',
-            detail: `No se pudo conectar a ${ip}:${port} ni usar servicios locales`,
-          })
+        const successAuto = await imprimirTicket(testText, 'auto')
+        if (successAuto) {
+          playSuccess()
+          setTestStatus({ success: true, message: 'Impresion enviada con exito (fallback)!' })
+        } else {
+          playError()
+          setTestStatus({ success: false, message: 'No se pudo conectar a la impresora TCP' })
         }
       }
-    } catch (e) {
+    } catch (err) {
       playError()
-
-      if (onToast) {
-        onToast({
-          tone: 'error',
-          title: 'Error de impresion',
-          detail: e.message || 'Verifica la red',
-        })
-      }
+      setTestStatus({ success: false, message: err.message || 'Error en prueba de impresion' })
     } finally {
       setTesting(false)
     }
   }
 
-  const handleSave = async () => {
-    playBeep()
-    setSaving(true)
-
-    await updateConfig({
-      printerIp: ip.trim() || '192.168.1.213',
-      printerPort: Number(port) || 9100,
-      autoPrint: auto,
-    })
-
-    setSaving(false)
+  const handleSave = (e) => {
+    e.preventDefault()
+    updateConfig({ printerIp: ip.trim() || '192.168.1.213', printerPort: Number(port) || 9100, autoPrint: auto })
     playSuccess()
-
-    onToast?.({
-      tone: 'success',
-      title: 'Configuracion guardada',
-      detail: 'Impresora configurada correctamente',
-    })
-
+    if (onToast) onToast({ tone: 'success', title: 'Configuracion guardada', detail: 'Impresora configurada correctamente' })
     onClose?.()
   }
 
-  return (
+  const modalContent = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       onClick={handleBackdropClick}
     >
+      <div className="absolute inset-0" aria-hidden="true" />
+
       <div
         ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Configuracion de impresora termica"
         style={
           position
             ? {
                 position: 'fixed',
                 left: `${position.x}px`,
                 top: `${position.y}px`,
+                margin: 0,
               }
             : undefined
         }
-        className="w-full max-w-sm max-h-[90vh] flex flex-col overflow-y-auto rounded-2xl border border-white/10 bg-neutral-900 p-5 shadow-2xl"
+        className="relative z-10 w-full max-w-sm rounded-2xl border border-white/10 bg-neutral-900 p-5 shadow-2xl select-none"
+        onClick={(e) => e.stopPropagation()}
       >
-        <header
-          onPointerDown={handleDragStart}
-          onPointerMove={handleDragMove}
-          onPointerUp={handleDragEnd}
-          onPointerCancel={handleDragEnd}
-          className="flex cursor-grab touch-none select-none items-center justify-between border-b border-white/10 p-4 active:cursor-grabbing"
+        <div
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          className="flex items-center justify-between border-b border-white/10 pb-3 cursor-grab active:cursor-grabbing touch-none select-none"
         >
-          <div className="flex items-center gap-2.5">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-saffron-400/20 text-saffron-400">
-              <Printer size={20} />
+          <div className="flex items-center gap-2">
+            <GripHorizontal className="text-white/40" size={16} />
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-saffron-400/10 text-saffron-400">
+              <Printer size={16} />
             </span>
-
-            <div>
-              <h2 className="text-base font-bold text-bone">
-                Configuracion de Impresora
-              </h2>
-
-              <p className="text-xs text-bone-muted">
-                Conexion directa RAW (Puerto 9100)
-              </p>
-            </div>
+            <h2 className="text-sm font-bold text-bone">Configurar Impresora</h2>
           </div>
 
-          <TouchButton
-            variant="ghost"
+          <button
+            type="button"
             onClick={onClose}
-            className="px-2.5"
-            aria-label="Cerrar"
+            className="rounded-lg p-1 text-bone-muted hover:bg-white/10 hover:text-bone transition-colors"
+            aria-label="Cerrar modal"
           >
-            <X size={18} />
-          </TouchButton>
-        </header>
+            <X size={16} />
+          </button>
+        </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        <form onSubmit={handleSave} className="mt-3 space-y-3 select-text">
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-bone-muted">
-              Direccion IP de la Impresora
+            <label className="block text-xs font-semibold text-bone-muted mb-1">
+              Direccion IP de Impresora
             </label>
-
-            <div className="relative flex items-center">
-              <Network
-                size={16}
-                className="absolute left-3 text-bone-muted"
-              />
-
-              <input
-                value={ip}
-                onChange={(e) => setIp(e.target.value)}
-                placeholder="192.168.1.213"
-                className={`${INPUT} pl-9 font-ticket text-base`}
-              />
-            </div>
-
-            <p className="mt-1 text-[0.7rem] text-bone-faint">
-              IP local asignada a la impresora termica en la red del restaurante.
-            </p>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-bone-muted">
-              Puerto TCP (RAW)
-            </label>
-
             <input
-              value={port}
-              onChange={(e) => setPort(e.target.value.replace(/\D/g, ''))}
-              inputMode="numeric"
-              placeholder="9100"
-              className={`${INPUT} font-ticket text-base`}
+              type="text"
+              value={ip}
+              onChange={(e) => setIp(e.target.value)}
+              placeholder="192.168.1.213"
+              required
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-bone focus:border-saffron-400 focus:outline-none focus:ring-1 focus:ring-saffron-400"
             />
           </div>
 
-          <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-3.5">
-            <div>
-              <p className="text-sm font-semibold text-bone">
-                Impresion Automatica
-              </p>
+          <div>
+            <label className="block text-xs font-semibold text-bone-muted mb-1">
+              Puerto TCP (RAW)
+            </label>
+            <input
+              type="number"
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+              placeholder="9100"
+              required
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-bone focus:border-saffron-400 focus:outline-none focus:ring-1 focus:ring-saffron-400"
+            />
+          </div>
 
-              <p className="text-xs text-bone-muted">
-                Imprimir tickets y comandas al cobrar/enviar
-              </p>
-            </div>
-
+          <label className="flex items-center gap-2.5 cursor-pointer select-none rounded-xl border border-white/5 bg-white/[0.02] p-2.5 hover:bg-white/[0.05] transition-colors">
             <input
               type="checkbox"
               checked={auto}
               onChange={(e) => setAuto(e.target.checked)}
-              className="h-5 w-5 rounded border-white/20 bg-ink-800 text-saffron-400 accent-saffron-400 focus:ring-0"
+              className="h-4 w-4 rounded border-white/20 bg-white/10 text-saffron-400 focus:ring-saffron-400 focus:ring-offset-0"
             />
-          </div>
-        </div>
+            <div>
+              <span className="block text-xs font-semibold text-bone">Impresion Automatica</span>
+              <span className="block text-[10px] text-bone-muted">
+                Imprimir tickets y comandas al cobrar/enviar
+              </span>
+            </div>
+          </label>
 
-        <footer className="space-y-2 border-t border-white/10 p-4">
-          <TouchButton
-            variant="secondary"
-            className="w-full border-saffron-400/40 bg-saffron-400/10 text-saffron-400 hover:bg-saffron-400/20"
-            onClick={handleTestPrint}
-            disabled={testing || saving}
-          >
-            {testing ? (
-              <>
-                <Loader2 className="animate-spin" size={17} />
-                Probando conexion TCP...
-              </>
-            ) : (
-              <>
-                <Zap size={17} />
-                Probar Conexion (Test Print)
-              </>
-            )}
-          </TouchButton>
-
-          <div className="flex gap-2 pt-1">
-            <TouchButton
-              variant="ghost"
-              className="flex-1"
-              onClick={onClose}
+          {testStatus && (
+            <div
+              className={`flex items-start gap-2 rounded-xl p-2.5 text-xs ${
+                testStatus.success
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+              }`}
             >
-              Cancelar
-            </TouchButton>
+              {testStatus.success ? <Check size={15} className="shrink-0 mt-0.5" /> : <AlertCircle size={15} className="shrink-0 mt-0.5" />}
+              <span>{testStatus.message}</span>
+            </div>
+          )}
 
-            <TouchButton
-              className="flex-1"
-              onClick={handleSave}
-              disabled={testing || saving}
+          <div className="pt-1 space-y-2 select-none">
+            <button
+              type="button"
+              onClick={handleTestPrint}
+              disabled={testing}
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-saffron-400/30 bg-saffron-400/10 py-2 text-xs font-bold text-saffron-400 hover:bg-saffron-400/20 transition-colors disabled:opacity-50"
             >
-              {saving ? (
-                <Loader2 className="animate-spin" size={17} />
-              ) : (
-                'Guardar Configuracion'
-              )}
-            </TouchButton>
+              <Wifi size={15} />
+              {testing ? 'Probando conexion...' : 'Probar Conexion (Test Print)'}
+            </button>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 py-2 text-xs font-semibold text-bone-muted hover:bg-white/10 hover:text-bone transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="flex-1 rounded-xl bg-saffron-grad py-2 text-xs font-bold text-ink-950 shadow-glow hover:brightness-110 transition-all"
+              >
+                Guardar Configuracion
+              </button>
+            </div>
           </div>
-        </footer>
+        </form>
       </div>
     </div>
   )
+
+  return createPortal(modalContent, document.body)
 }
