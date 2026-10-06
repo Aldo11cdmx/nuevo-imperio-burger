@@ -101,6 +101,33 @@ export async function abrirPosPrinterDriverNativo(textoTicket) {
 }
 
 /**
+ * MÉTODO 3B: Impresión TCP directa desde Electron (net.Socket en el proceso principal).
+ * Solo se usa cuando la app corre empaquetada en Electron y expone window.electronAPI.
+ */
+async function printViaElectronTcp(text, customIp, customPort) {
+  if (typeof window === 'undefined' || !window.electronAPI?.printTcp) return false
+  try {
+    const ip = customIp || PRINTER_IP
+    const port = Number(customPort) || PRINTER_PORT
+
+    const encoder = new TextEncoder()
+    const bytes = encoder.encode(text)
+    let binary = ''
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
+    const base64 = btoa(binary)
+
+    const result = await window.electronAPI.printTcp({ ip, port, bytesBase64: base64 })
+    if (!result || !result.success) {
+      console.warn('[thermalPrint] Electron TCP falló:', result?.error || 'sin detalle')
+    }
+    return result?.success === true
+  } catch (e) {
+    console.warn('[thermalPrint] printViaElectronTcp excepción:', e.message)
+    return false
+  }
+}
+
+/**
  * MÉTODO 3: Socket TCP Nativo mediante Plugin de Capacitor (Directo a la IP y Puerto configurados)
  */
 async function printViaNativeSocket(text, customIp, customPort) {
@@ -231,7 +258,10 @@ export async function imprimirTicket(textoTicket, metodo = 'auto') {
     return await printViaSystem(formattedText)
   }
 
-  // Estrategia 'auto': socket TCP directo primero (silencioso)
+  // Estrategia 'auto': Electron TCP primero (si está disponible), luego socket nativo, luego driver, luego system
+  const successElectron = await printViaElectronTcp(formattedText)
+  if (successElectron) return true
+
   const successNative = await printViaNativeSocket(formattedText)
   if (successNative) return true
 

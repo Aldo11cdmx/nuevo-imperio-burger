@@ -32,6 +32,9 @@ android/local.properties
 *.jks
 keystore.properties
 
+# Electron
+dist-electron
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
