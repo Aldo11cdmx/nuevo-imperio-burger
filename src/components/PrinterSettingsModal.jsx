@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { Loader2, Network, Printer, X, Zap } from 'lucide-react'
 import TouchButton from './TouchButton'
 import { INPUT } from './admin/fields'
@@ -14,7 +14,7 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  const [position, setPosition] = useState({ x: 0, y: 0 })
+  const [position, setPosition] = useState(null)
   const draggingRef = useRef(false)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const modalRef = useRef(null)
@@ -33,60 +33,72 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
     const handleKey = (e) => {
       if (e.key === 'Escape') onClose?.()
     }
+
     document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
+
+    return () => {
+      document.removeEventListener('keydown', handleKey)
+    }
   }, [onClose])
 
   const handleBackdropClick = (e) => {
     if (e.target === e.currentTarget) onClose?.()
   }
 
-  const onPointerDown = (e) => {
-    if (e.target.closest('button')) return
+  const handleDragStart = (e) => {
+    if (e.button !== undefined && e.button !== 0) return
+
+    const modal = modalRef.current
+    if (!modal) return
+
+    const rect = modal.getBoundingClientRect()
+
     draggingRef.current = true
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+
     dragOffsetRef.current = {
-      x: clientX - position.x,
-      y: clientY - position.y,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
     }
+
+    e.currentTarget.setPointerCapture?.(e.pointerId)
   }
 
-  const onPointerMove = (e) => {
+  const handleDragMove = (e) => {
     if (!draggingRef.current) return
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+
+    const modal = modalRef.current
+    if (!modal) return
+
+    const rect = modal.getBoundingClientRect()
+
+    const maxX = Math.max(8, window.innerWidth - rect.width - 8)
+    const maxY = Math.max(8, window.innerHeight - rect.height - 8)
+
+    const nextX = Math.min(
+      maxX,
+      Math.max(8, e.clientX - dragOffsetRef.current.x)
+    )
+
+    const nextY = Math.min(
+      maxY,
+      Math.max(8, e.clientY - dragOffsetRef.current.y)
+    )
+
     setPosition({
-      x: clientX - dragOffsetRef.current.x,
-      y: clientY - dragOffsetRef.current.y,
+      x: nextX,
+      y: nextY,
     })
   }
 
-  const onPointerUp = () => {
+  const handleDragEnd = (e) => {
     draggingRef.current = false
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
   }
-
-  useEffect(() => {
-    const handleMouseMove = (e) => onPointerMove(e)
-    const handleMouseUp = () => onPointerUp()
-    const handleTouchMove = (e) => onPointerMove(e)
-    const handleTouchEnd = () => onPointerUp()
-
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-    window.addEventListener('touchmove', handleTouchMove)
-    window.addEventListener('touchend', handleTouchEnd)
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-      window.removeEventListener('touchmove', handleTouchMove)
-      window.removeEventListener('touchend', handleTouchEnd)
-    }
-  }, [position])
 
   const handleTestPrint = async () => {
     playBeep()
     setTesting(true)
+
     const testText =
       '================================\n' +
       '      NUEVO IMPERIO BURGER      \n' +
@@ -98,22 +110,49 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
       '================================\n\n\n\n'
 
     try {
-      await updateConfig({ printerIp: ip.trim() || '192.168.1.213', printerPort: Number(port) || 9100, autoPrint: auto })
+      await updateConfig({
+        printerIp: ip.trim() || '192.168.1.213',
+        printerPort: Number(port) || 9100,
+        autoPrint: auto,
+      })
+
       let success = await imprimirTicket(testText, 'native')
+
       if (!success) {
         success = await imprimirTicket(testText, 'auto')
       }
 
       if (success) {
         playSuccess()
-        if (onToast) onToast({ tone: 'success', title: 'Impresion enviada con exito!', detail: `Conectado a ${ip}:${port} (o servicio local)` })
+
+        if (onToast) {
+          onToast({
+            tone: 'success',
+            title: 'Impresion enviada con exito!',
+            detail: `Conectado a ${ip}:${port} (o servicio local)`,
+          })
+        }
       } else {
         playError()
-        if (onToast) onToast({ tone: 'error', title: 'Fallo en la prueba', detail: `No se pudo conectar a ${ip}:${port} ni usar servicios locales` })
+
+        if (onToast) {
+          onToast({
+            tone: 'error',
+            title: 'Fallo en la prueba',
+            detail: `No se pudo conectar a ${ip}:${port} ni usar servicios locales`,
+          })
+        }
       }
     } catch (e) {
       playError()
-      if (onToast) onToast({ tone: 'error', title: 'Error de impresion', detail: e.message || 'Verifica la red' })
+
+      if (onToast) {
+        onToast({
+          tone: 'error',
+          title: 'Error de impresion',
+          detail: e.message || 'Verifica la red',
+        })
+      }
     } finally {
       setTesting(false)
     }
@@ -122,45 +161,75 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
   const handleSave = async () => {
     playBeep()
     setSaving(true)
+
     await updateConfig({
       printerIp: ip.trim() || '192.168.1.213',
       printerPort: Number(port) || 9100,
       autoPrint: auto,
     })
+
     setSaving(false)
     playSuccess()
-    onToast?.({ tone: 'success', title: 'Configuración guardada', detail: 'Impresora configurada correctamente' })
+
+    onToast?.({
+      tone: 'success',
+      title: 'Configuracion guardada',
+      detail: 'Impresora configurada correctamente',
+    })
+
     onClose?.()
   }
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       onClick={handleBackdropClick}
     >
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Configuración de impresora térmica"
-        style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
-        className="max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl"
+        aria-label="Configuracion de impresora termica"
+        style={
+          position
+            ? {
+                position: 'fixed',
+                left: `${position.x}px`,
+                top: `${position.y}px`,
+              }
+            : undefined
+        }
+        className="w-full max-w-sm max-h-[90vh] flex flex-col overflow-y-auto rounded-2xl border border-white/10 bg-neutral-900 p-5 shadow-2xl"
       >
         <header
-          onMouseDown={onPointerDown}
-          onTouchStart={onPointerDown}
-          className="flex items-center justify-between border-b border-white/10 p-4 cursor-grab active:cursor-grabbing touch-none"
+          onPointerDown={handleDragStart}
+          onPointerMove={handleDragMove}
+          onPointerUp={handleDragEnd}
+          onPointerCancel={handleDragEnd}
+          className="flex cursor-grab touch-none select-none items-center justify-between border-b border-white/10 p-4 active:cursor-grabbing"
         >
           <div className="flex items-center gap-2.5">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-saffron-400/20 text-saffron-400">
               <Printer size={20} />
             </span>
+
             <div>
-              <h2 className="text-base font-bold text-bone">Configuracion de Impresora</h2>
-              <p className="text-xs text-bone-muted">Conexion directa RAW (Puerto 9100)</p>
+              <h2 className="text-base font-bold text-bone">
+                Configuracion de Impresora
+              </h2>
+
+              <p className="text-xs text-bone-muted">
+                Conexion directa RAW (Puerto 9100)
+              </p>
             </div>
           </div>
-          <TouchButton variant="ghost" onClick={onClose} className="px-2.5" aria-label="Cerrar">
+
+          <TouchButton
+            variant="ghost"
+            onClick={onClose}
+            className="px-2.5"
+            aria-label="Cerrar"
+          >
             <X size={18} />
           </TouchButton>
         </header>
@@ -170,8 +239,13 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
             <label className="mb-1.5 block text-xs font-medium text-bone-muted">
               Direccion IP de la Impresora
             </label>
+
             <div className="relative flex items-center">
-              <Network size={16} className="absolute left-3 text-bone-muted" />
+              <Network
+                size={16}
+                className="absolute left-3 text-bone-muted"
+              />
+
               <input
                 value={ip}
                 onChange={(e) => setIp(e.target.value)}
@@ -179,6 +253,7 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
                 className={`${INPUT} pl-9 font-ticket text-base`}
               />
             </div>
+
             <p className="mt-1 text-[0.7rem] text-bone-faint">
               IP local asignada a la impresora termica en la red del restaurante.
             </p>
@@ -188,6 +263,7 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
             <label className="mb-1.5 block text-xs font-medium text-bone-muted">
               Puerto TCP (RAW)
             </label>
+
             <input
               value={port}
               onChange={(e) => setPort(e.target.value.replace(/\D/g, ''))}
@@ -199,9 +275,15 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
 
           <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-3.5">
             <div>
-              <p className="text-sm font-semibold text-bone">Impresion Automatica</p>
-              <p className="text-xs text-bone-muted">Imprimir tickets y comandas al cobrar/enviar</p>
+              <p className="text-sm font-semibold text-bone">
+                Impresion Automatica
+              </p>
+
+              <p className="text-xs text-bone-muted">
+                Imprimir tickets y comandas al cobrar/enviar
+              </p>
             </div>
+
             <input
               type="checkbox"
               checked={auto}
@@ -214,27 +296,42 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
         <footer className="space-y-2 border-t border-white/10 p-4">
           <TouchButton
             variant="secondary"
-            className="w-full bg-saffron-400/10 border-saffron-400/40 text-saffron-400 hover:bg-saffron-400/20"
+            className="w-full border-saffron-400/40 bg-saffron-400/10 text-saffron-400 hover:bg-saffron-400/20"
             onClick={handleTestPrint}
             disabled={testing || saving}
           >
             {testing ? (
               <>
-                <Loader2 className="animate-spin" size={17} /> Probando conexion TCP…
+                <Loader2 className="animate-spin" size={17} />
+                Probando conexion TCP...
               </>
             ) : (
               <>
-                <Zap size={17} /> Probar Conexion (Test Print)
+                <Zap size={17} />
+                Probar Conexion (Test Print)
               </>
             )}
           </TouchButton>
 
           <div className="flex gap-2 pt-1">
-            <TouchButton variant="ghost" className="flex-1" onClick={onClose}>
+            <TouchButton
+              variant="ghost"
+              className="flex-1"
+              onClick={onClose}
+            >
               Cancelar
             </TouchButton>
-            <TouchButton className="flex-1" onClick={handleSave} disabled={testing || saving}>
-              {saving ? <Loader2 className="animate-spin" size={17} /> : 'Guardar Configuracion'}
+
+            <TouchButton
+              className="flex-1"
+              onClick={handleSave}
+              disabled={testing || saving}
+            >
+              {saving ? (
+                <Loader2 className="animate-spin" size={17} />
+              ) : (
+                'Guardar Configuracion'
+              )}
             </TouchButton>
           </div>
         </footer>
