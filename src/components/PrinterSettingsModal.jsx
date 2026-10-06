@@ -17,6 +17,7 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
   const [position, setPosition] = useState({ x: 0, y: 0 })
   const draggingRef = useRef(false)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
+  const modalRef = useRef(null)
 
   useEffect(() => {
     loadConfig()
@@ -27,6 +28,18 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
     setPort(String(printerPort))
     setAuto(autoPrint)
   }, [printerIp, printerPort, autoPrint])
+
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === 'Escape') onClose?.()
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
+  const handleBackdropClick = (e) => {
+    if (e.target === e.currentTarget) onClose?.()
+  }
 
   const onPointerDown = (e) => {
     if (e.target.closest('button')) return
@@ -88,20 +101,19 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
       await updateConfig({ printerIp: ip.trim() || '192.168.1.213', printerPort: Number(port) || 9100, autoPrint: auto })
       let success = await imprimirTicket(testText, 'native')
       if (!success) {
-        // Fallback a 'auto' si native devolvió false
         success = await imprimirTicket(testText, 'auto')
       }
 
       if (success) {
         playSuccess()
-        onToast?.({ tone: 'success', title: '¡Impresión enviada con éxito!', detail: `Conectado a ${ip}:${port} (o servicio local)` })
+        if (onToast) onToast({ tone: 'success', title: 'Impresion enviada con exito!', detail: `Conectado a ${ip}:${port} (o servicio local)` })
       } else {
         playError()
-        onToast?.({ tone: 'error', title: 'Fallo en la prueba', detail: `No se pudo conectar a ${ip}:${port} ni usar servicios locales` })
+        if (onToast) onToast({ tone: 'error', title: 'Fallo en la prueba', detail: `No se pudo conectar a ${ip}:${port} ni usar servicios locales` })
       }
     } catch (e) {
       playError()
-      onToast?.({ tone: 'error', title: 'Error de impresión', detail: e.message || 'Verifica la red' })
+      if (onToast) onToast({ tone: 'error', title: 'Error de impresion', detail: e.message || 'Verifica la red' })
     } finally {
       setTesting(false)
     }
@@ -122,13 +134,17 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-fadeIn">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={handleBackdropClick}
+    >
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-label="Configuración de impresora térmica"
         style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
-        className="max-h-[70vh] w-[90vw] max-w-sm flex flex-col overflow-hidden rounded-3xl border border-white/15 bg-ink-900 shadow-glass select-none transition-transform duration-75"
+        className="max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl"
       >
         <header
           onMouseDown={onPointerDown}
@@ -140,8 +156,8 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
               <Printer size={20} />
             </span>
             <div>
-              <h2 className="text-base font-bold">Impresora Térmica IP</h2>
-              <p className="text-xs text-bone-muted">Conexión directa RAW (Puerto 9100)</p>
+              <h2 className="text-base font-bold text-bone">Configuracion de Impresora</h2>
+              <p className="text-xs text-bone-muted">Conexion directa RAW (Puerto 9100)</p>
             </div>
           </div>
           <TouchButton variant="ghost" onClick={onClose} className="px-2.5" aria-label="Cerrar">
@@ -152,7 +168,7 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-bone-muted">
-              Dirección IP de la Impresora
+              Direccion IP de la Impresora
             </label>
             <div className="relative flex items-center">
               <Network size={16} className="absolute left-3 text-bone-muted" />
@@ -164,7 +180,7 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
               />
             </div>
             <p className="mt-1 text-[0.7rem] text-bone-faint">
-              IP local asignada a la impresora térmica en la red del restaurante.
+              IP local asignada a la impresora termica en la red del restaurante.
             </p>
           </div>
 
@@ -183,7 +199,7 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
 
           <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] p-3.5">
             <div>
-              <p className="text-sm font-semibold">Impresión Automática</p>
+              <p className="text-sm font-semibold text-bone">Impresion Automatica</p>
               <p className="text-xs text-bone-muted">Imprimir tickets y comandas al cobrar/enviar</p>
             </div>
             <input
@@ -204,11 +220,11 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
           >
             {testing ? (
               <>
-                <Loader2 className="animate-spin" size={17} /> Probando conexión TCP…
+                <Loader2 className="animate-spin" size={17} /> Probando conexion TCP…
               </>
             ) : (
               <>
-                <Zap size={17} /> Probar Conexión (Test Print)
+                <Zap size={17} /> Probar Conexion (Test Print)
               </>
             )}
           </TouchButton>
@@ -218,7 +234,7 @@ export default function PrinterSettingsModal({ onClose, onToast }) {
               Cancelar
             </TouchButton>
             <TouchButton className="flex-1" onClick={handleSave} disabled={testing || saving}>
-              {saving ? <Loader2 className="animate-spin" size={17} /> : 'Guardar Configuración'}
+              {saving ? <Loader2 className="animate-spin" size={17} /> : 'Guardar Configuracion'}
             </TouchButton>
           </div>
         </footer>
