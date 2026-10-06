@@ -23,7 +23,7 @@
     "appId": "com.nuevoimperioburger.pos",
     "productName": "Nuevo Imperio Burger POS",
     "directories": {
-      "output": "dist-electron"
+      "output": "C:/electron-build"
     },
     "files": [
       "dist/**/*",

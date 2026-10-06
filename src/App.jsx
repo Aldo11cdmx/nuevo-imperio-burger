@@ -39,8 +39,9 @@ function ViewportLock() {
 export default function App() {
   return (
     <HashRouter>
-      <ViewportLock />
-      <Routes>
+      <div className="w-full overflow-x-hidden">
+        <ViewportLock />
+        <Routes>
         <Route
           path="/"
           element={
@@ -91,6 +92,7 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </div>
     </HashRouter>
   )
 }

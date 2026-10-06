@@ -10,20 +10,25 @@ let mainWindow = null
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
+    width: 1280,
     height: 800,
-    minWidth: 800,
-    minHeight: 600,
+    minWidth: 1024,
+    minHeight: 768,
     title: 'Nuevo Imperio Burger',
     backgroundColor: '#0B0A0C',
     show: false,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
       nodeIntegration: false,
+      contextIsolation: true,
+      zoomFactor: 0.9,
       sandbox: false,
     },
   })
+
+  // Quita el menú completamente (ni con Alt).
+  mainWindow.setMenu(null)
 
   const devUrl = 'http://localhost:5173'
   if (app.isPackaged) {
@@ -33,7 +38,10 @@ function createWindow() {
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
 
-  mainWindow.once('ready-to-show', () => mainWindow.show())
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.maximize()
+    mainWindow.show()
+  })
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
