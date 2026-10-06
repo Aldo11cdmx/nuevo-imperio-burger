@@ -8,27 +8,27 @@
 import { Preferences } from '@capacitor/preferences'
 import { Capacitor } from '@capacitor/core'
 
-const native = Capacitor.isPluginAvailable('Preferences')
+const isNative = Capacitor.isNativePlatform()
 
 export const storage = {
   async getItem(key) {
-    if (native) {
-      const { value } = await Preferences.getItem({ key })
+    if (isNative) {
+      const { value } = await Preferences.get({ key })
       return value
     }
     return typeof window !== 'undefined' ? window.localStorage.getItem(key) : null
   },
   async setItem(key, value) {
     const v = value ?? ''
-    if (native) {
-      await Preferences.setItem({ key, value: String(v) })
+    if (isNative) {
+      await Preferences.set({ key, value: String(v) })
     } else if (typeof window !== 'undefined') {
       window.localStorage.setItem(key, String(v))
     }
   },
   async removeItem(key) {
-    if (native) {
-      await Preferences.removeItem({ key })
+    if (isNative) {
+      await Preferences.remove({ key })
     } else if (typeof window !== 'undefined') {
       window.localStorage.removeItem(key)
     }

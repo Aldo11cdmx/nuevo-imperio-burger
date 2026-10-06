@@ -4,9 +4,12 @@ import TouchButton from '../TouchButton'
 import { INPUT } from '../admin/fields'
 import TicketPreview from '../receipt/TicketPreview'
 import { formatMXN, round2 } from '../../lib/format'
+import { buildReceiptText, printReceipt } from '../../lib/receipt'
+import { imprimirTicket } from '../../lib/thermalPrint'
 import { useAuthStore } from '../../store/useAuthStore'
 import { PAYMENT_LABELS, usePaymentStore } from '../../store/usePaymentStore'
 import { CONNECTION_EVENTS } from '../../store/useConnectionStore'
+import { playBeep, playError, playSuccess } from '../../lib/audio'
 
 /**
  * Datos del negocio que salen impresos en el ticket.
@@ -155,7 +158,25 @@ export default function SplitPaymentDialog({ order, onClose, onPaid, defaultTab 
     if (isSettled) return false
     const ok = await addPayment({ orderId: order.id, method, amount })
     await refreshStatus()
-    if (ok) onPaid?.(ok)
+    if (ok) {
+      playSuccess()
+      try {
+        const text = buildReceiptText({
+          order,
+          payments: [{ method, amount }],
+          business: BUSINESS,
+          staffName,
+        })
+        imprimirTicket(text, 'auto').catch((e) => {
+          console.warn('Background print error:', e)
+        })
+      } catch (e) {
+        console.warn('Auto print receipt error:', e)
+      }
+      onPaid?.(ok)
+    } else {
+      playError()
+    }
     return ok
   }
 
@@ -301,7 +322,10 @@ export default function SplitPaymentDialog({ order, onClose, onPaid, defaultTab 
                         <TouchButton
                           key={m.id}
                           variant={singleMethod === m.id ? 'primary' : 'secondary'}
-                          onClick={() => setSingleMethod(m.id)}
+                          onClick={() => {
+                            playBeep()
+                            setSingleMethod(m.id)
+                          }}
                           className="flex-col gap-1 py-3 text-xs"
                         >
                           <span className="text-lg">{m.emoji}</span>
@@ -312,7 +336,7 @@ export default function SplitPaymentDialog({ order, onClose, onPaid, defaultTab 
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-bone-muted">
-                      Monto (vacío = cobrar todo lo que falta)
+                      Monto recibido (vacío = cobrar todo lo que falta)
                     </label>
                     <input
                       value={singleAmount}
@@ -322,7 +346,59 @@ export default function SplitPaymentDialog({ order, onClose, onPaid, defaultTab 
                       className={`${INPUT} font-ticket text-lg`}
                     />
                   </div>
-                  <TouchButton className="w-full" onClick={handleSingle} disabled={!canChargeSingle}>
+
+                  {/* Calculadora de cambio y billetes sugeridos para Efectivo */}
+                  {singleMethod === 'cash' && (
+                    <div className="space-y-2 rounded-2xl border border-white/10 bg-ink-800/60 p-3">
+                      <p className="text-xs font-medium text-bone-muted">Billetes sugeridos:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playBeep()
+                            setSingleAmount(String(remaining))
+                          }}
+                          className="rounded-xl border border-saffron-400/40 bg-saffron-400/10 px-2.5 py-1.5 text-xs font-bold text-saffron-400 hover:bg-saffron-400/20"
+                        >
+                          Exacto ({formatMXN(remaining)})
+                        </button>
+                        {[20, 50, 100, 200, 500, 1000]
+                          .filter((b) => b > remaining)
+                          .map((bill) => (
+                            <button
+                              key={bill}
+                              type="button"
+                              onClick={() => {
+                                playBeep()
+                                setSingleAmount(String(bill))
+                              }}
+                              className="rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-semibold hover:bg-white/10"
+                            >
+                              ${bill}
+                            </button>
+                          ))}
+                      </div>
+
+                      {singleAmount.trim() !== '' && Number(singleAmount) >= remaining && (
+                        <div className="mt-2 flex items-center justify-between rounded-xl bg-jade-400/15 border border-jade-400/40 px-3 py-2 text-xs font-bold text-jade-300">
+                          <span>💵 Cambio a entregar:</span>
+                          <span className="font-ticket text-base">{formatMXN(round2(Number(singleAmount) - remaining))}</span>
+                        </div>
+                      )}
+
+                      {singleAmount.trim() !== '' && Number(singleAmount) < remaining && (
+                        <p className="mt-2 text-xs text-emberred-400 font-semibold">
+                          ⚠️ El monto en efectivo es menor que el saldo restante ({formatMXN(remaining)}).
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <TouchButton
+                    className="w-full min-h-[48px]"
+                    onClick={handleSingle}
+                    disabled={!canChargeSingle || (singleAmount.trim() !== '' && Number(singleAmount) < remaining)}
+                  >
                     Cobrar {singleAmount.trim() === '' ? formatMXN(remaining) : formatMXN(round2(Number(singleAmount)))}
                   </TouchButton>
                 </div>

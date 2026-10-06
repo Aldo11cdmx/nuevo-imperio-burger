@@ -3,6 +3,7 @@ import supabase from '../lib/supabase'
 import { friendlyError } from '../lib/errors'
 import { useAuthStore } from './useAuthStore'
 import { useShiftStore } from './useShiftStore'
+import { notifyNewOrder, notifyOrderReady } from '../lib/notifications'
 
 export const ORDER_STATUS = {
   PENDING: 'pending',
@@ -303,7 +304,16 @@ export const useOrderStore = create((set, get) => ({
   subscribe: (channelName = 'orders') => {
     const channel = supabase
       .channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
+        if (payload?.new) {
+          notifyNewOrder(payload.new)
+        }
+        get().fetchOpenOrders()
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
+        if (payload?.new && payload.new.status === ORDER_STATUS.READY && payload.old?.status !== ORDER_STATUS.READY) {
+          notifyOrderReady(payload.new)
+        }
         get().fetchOpenOrders()
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'order_items' }, () => {

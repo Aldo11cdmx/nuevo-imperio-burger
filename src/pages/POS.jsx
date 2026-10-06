@@ -5,9 +5,12 @@ import ScreenHeader from '../components/ScreenHeader'
 import Toast from '../components/Toast'
 import TouchButton from '../components/TouchButton'
 import DiscountDialog from '../components/payment/DiscountDialog'
+import SplitPaymentDialog from '../components/payment/SplitPaymentDialog'
+import { playBeep, playError, playSuccess } from '../lib/audio'
 import { getGradient } from '../data/categories'
 import { PRICES_INCLUDE_TAX, formatMXN } from '../lib/format'
 import { buildKitchenText, printReceipt } from '../lib/receipt'
+import { imprimirTicket } from '../lib/thermalPrint'
 import supabase from '../lib/supabase'
 import { useAuthStore } from '../store/useAuthStore'
 import {
@@ -59,6 +62,7 @@ export default function POS() {
    * renglón a medio configurar se contaría en el total y se podría mandar a cocina.
    */
   const [extrasFor, setExtrasFor] = useState(null)
+  const [directPayOrder, setDirectPayOrder] = useState(null)
 
   const products = useProductStore((state) => state.products)
   const loadProducts = useProductStore((state) => state.load)
@@ -254,6 +258,7 @@ export default function POS() {
    */
   const tapProduct = useCallback(
     (product) => {
+      playBeep()
       const groups = groupsFor(product.id)
       if (groups.length === 0) {
         addItem(product)
@@ -384,31 +389,23 @@ export default function POS() {
 
       // La comanda del agregado lleva SOLO lo nuevo, y por eso se rotula distinto:
       // el cocinero tiene que saber de un vistazo que no es una orden completa.
-      const printed = printReceipt(
-        buildKitchenText({
-          kind: 'addon',
-          code,
-          tableNumber: table,
-          orderType: existingOrder.orderType,
-          platform: existingOrder.platform,
-          items: kitchenItems,
-        }),
-        { fontSize: 18, bold: true },
-      )
+      const kitchenText = buildKitchenText({
+        kind: 'addon',
+        code,
+        tableNumber: table,
+        orderType: existingOrder.orderType,
+        platform: existingOrder.platform,
+        items: kitchenItems,
+      })
+      imprimirTicket(kitchenText, 'auto').catch((e) => {
+        console.warn('Kitchen addon print error:', e)
+      })
 
-      setToast(
-        printed
-          ? {
-              tone: 'success',
-              title: `Agregado a la cuenta #${code}`,
-              detail: `${unitCount} ${unitCount === 1 ? 'producto' : 'productos'} a cocina`,
-            }
-          : {
-              tone: 'error',
-              title: `Agregado a la cuenta #${code}, pero no se imprimió`,
-              detail: 'Abre Cocina y usa el botón Comanda para sacarla.',
-            },
-      )
+      setToast({
+        tone: 'success',
+        title: `Agregado a la cuenta #${code}`,
+        detail: `${unitCount} ${unitCount === 1 ? 'producto' : 'productos'} a cocina`,
+      })
       return
     }
 
@@ -444,34 +441,22 @@ export default function POS() {
     setDiscountPin(null)
     setSubmitting(false)
 
-    const printed = printReceipt(
-      buildKitchenText({
-        code: order.code,
-        tableNumber: effectiveTable,
-        orderType,
-        platform,
-        items: kitchenItems,
-      }),
-      { fontSize: 18, bold: true },
-    )
+    const kitchenText = buildKitchenText({
+      code: order.code,
+      tableNumber: effectiveTable,
+      orderType,
+      platform,
+      items: kitchenItems,
+    })
+    imprimirTicket(kitchenText, 'auto').catch((e) => {
+      console.warn('Kitchen new order print error:', e)
+    })
 
-    // Un toast que solo dice "enviada" deja al mesero creyendo que la cocina ya tiene
-    // el papel. La impresión va DESPUÉS del await del RPC, fuera del gesto del
-    // usuario, y Chrome puede rechazarla: si eso pasa, el pedido existe en la base
-    // pero no hay comanda, así que hay que decirlo y señalar dónde recuperarla.
-    setToast(
-      printed
-        ? {
-            tone: 'success',
-            title: `Orden #${order.code} enviada a cocina`,
-            detail: `${unitCount} ${unitCount === 1 ? 'producto' : 'productos'}`,
-          }
-        : {
-            tone: 'error',
-            title: `Orden #${order.code} guardada, pero no se imprimió`,
-            detail: 'Abre Cocina y usa el botón Comanda para sacarla.',
-          },
-    )
+    setToast({
+      tone: 'success',
+      title: `Orden #${order.code} enviada a cocina`,
+      detail: `${unitCount} ${unitCount === 1 ? 'producto' : 'productos'}`,
+    })
   }
 
   return (
@@ -481,13 +466,13 @@ export default function POS() {
         subtitle={employee ? `${employee.full_name} · ${itemCount} líneas` : `${itemCount} líneas`}
       />
 
-      <div className="grid flex-1 grid-cols-1 gap-4 p-4 md:gap-5 md:p-5 lg:grid-cols-[1fr_360px] xl:grid-cols-[1fr_400px]">
+      <div className="grid flex-1 grid-cols-1 gap-4 p-3 sm:p-4 md:gap-5 md:p-5 lg:grid-cols-[1fr_360px] xl:grid-cols-[1fr_400px]">
         <section className="min-w-0">
-          <div className="mb-3 flex flex-wrap gap-2">
+          <div className="mb-3 flex overflow-x-auto no-scrollbar pb-1 flex-nowrap sm:flex-wrap gap-2">
             <TouchButton
               variant={category === 'all' ? 'primary' : 'secondary'}
               onClick={() => setCategory('all')}
-              className="shrink-0 px-4 text-sm"
+              className="shrink-0 px-4 text-xs font-bold sm:text-sm min-h-[44px]"
             >
               Todos
             </TouchButton>
@@ -496,7 +481,7 @@ export default function POS() {
                 key={item.id}
                 variant={category === item.id ? 'primary' : 'secondary'}
                 onClick={() => setCategory(item.id)}
-                className="shrink-0 px-4 text-sm"
+                className="shrink-0 px-4 text-xs font-bold sm:text-sm min-h-[44px]"
               >
                 {item.label}
               </TouchButton>
@@ -596,7 +581,7 @@ export default function POS() {
           )}
         </section>
 
-        <aside className="relative flex flex-col self-start lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)]">
+        <aside id="cart-section" className="relative flex flex-col self-start lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)]">
           {/* Firma visual: el borde troquelado de un ticket de impresora. */}
           <div className="pointer-events-none -mb-2 flex justify-between px-3" aria-hidden="true">
             {Array.from({ length: 22 }, (_, index) => (
@@ -659,17 +644,34 @@ export default function POS() {
                   Mesa {tableNumber} ya tiene{' '}
                   {accountsForTable.length === 1 ? 'una cuenta' : `${accountsForTable.length} cuentas`}
                 </p>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-col gap-2">
                   {accountsForTable.map((account) => (
-                    <TouchButton
-                      key={account.id}
-                      variant="secondary"
-                      className="px-2.5 py-1.5 text-xs"
-                      onClick={() => loadExisting(account)}
-                    >
-                      Continuar #{account.code} ·{' '}
-                      {formatMXN(Math.max(0, account.total - (account.paid_total ?? 0)))}
-                    </TouchButton>
+                    <div key={account.id} className="flex items-center gap-1.5">
+                      <TouchButton
+                        variant="secondary"
+                        className="flex-1 justify-between px-2.5 py-1.5 text-xs"
+                        onClick={() => {
+                          playBeep()
+                          loadExisting(account)
+                        }}
+                      >
+                        <span>Continuar #{account.code}</span>
+                        <span className="font-ticket font-bold text-saffron-400">
+                          {formatMXN(Math.max(0, account.total - (account.paid_total ?? 0)))}
+                        </span>
+                      </TouchButton>
+                      <TouchButton
+                        variant="primary"
+                        className="shrink-0 bg-jade-400/90 text-ink-950 font-bold px-2.5 py-1.5 text-xs hover:bg-jade-400"
+                        title="Cobrar cuenta de emergencia inmediatamente sin pasar por cocina"
+                        onClick={() => {
+                          playBeep()
+                          setDirectPayOrder(account)
+                        }}
+                      >
+                        ⚡ Cobrar directo
+                      </TouchButton>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -943,6 +945,25 @@ export default function POS() {
         </aside>
       </div>
 
+      {/* Botón flotante para acceder rápido al ticket en celulares */}
+      {itemCount > 0 && (
+        <div className="sticky bottom-3 z-20 mx-3 my-2 block lg:hidden">
+          <TouchButton
+            className="w-full justify-between shadow-glow py-3 min-h-[48px]"
+            onClick={() => {
+              const el = document.getElementById('cart-section')
+              if (el) el.scrollIntoView({ behavior: 'smooth' })
+            }}
+          >
+            <span className="flex items-center gap-2">
+              <ReceiptText size={18} />
+              <span className="font-semibold text-sm">Ver Ticket ({unitCount} unid.)</span>
+            </span>
+            <span className="font-ticket text-lg font-bold">{formatMXN(total)}</span>
+          </TouchButton>
+        </div>
+      )}
+
       {showDiscount && (
         <DiscountDialog
           subtotal={subtotal}
@@ -966,6 +987,19 @@ export default function POS() {
           groups={extrasFor.groups}
           onConfirm={confirmModifiers}
           onClose={() => setExtrasFor(null)}
+        />
+      )}
+
+      {directPayOrder && (
+        <SplitPaymentDialog
+          order={directPayOrder}
+          onClose={() => setDirectPayOrder(null)}
+          onPaid={() => {
+            playSuccess()
+            setDirectPayOrder(null)
+            if (tableNumber) fetchTableAccounts(tableNumber)
+            setToast({ tone: 'success', title: 'Cuenta cobrada con éxito' })
+          }}
         />
       )}
 

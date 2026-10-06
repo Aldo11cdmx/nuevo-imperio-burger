@@ -19,29 +19,30 @@ function WifiOffIcon({ className }) {
 }
 
 export default function ConnectionBadge() {
-  const { isOnline, isRecovering, tickSync } = useConnectionStore()
+  const { isOnline, isRecovering, pendingOfflineOrders } = useConnectionStore()
   const online = isOnline ?? true
+  const pendingCount = pendingOfflineOrders?.length ?? 0
 
-  if (online && !isRecovering) return null
+  if (online && !isRecovering && pendingCount === 0) return null
 
   return (
     <div
       aria-live="polite"
-      className={`fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full
-                  px-3 py-2 text-sm font-medium shadow-lg
+      className={`fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-2xl
+                  px-4 py-2.5 text-xs font-bold shadow-glass border backdrop-blur-xl transition-all
                   ${online
-        ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-200'
-        : 'bg-rose-50 text-rose-800 ring-1 ring-rose-200'}`}
+        ? 'bg-saffron-400/15 text-saffron-400 border-saffron-400/40'
+        : 'bg-emberred-500/20 text-emberred-300 border-emberred-500/50'}`}
     >
       {online ? (
         <>
           <WifiIcon className="h-4 w-4 animate-pulse" />
-          Reconectando… {tickSync()}
+          <span>Sincronizando {pendingCount > 0 ? `(${pendingCount} órdenes)` : ''}…</span>
         </>
       ) : (
         <>
           <WifiOffIcon className="h-4 w-4" />
-          Sin conexión
+          <span>Modo Offline {pendingCount > 0 ? `· ${pendingCount} pendiente(s)` : ''}</span>
         </>
       )}
     </div>

@@ -3,10 +3,17 @@
 @tailwind utilities;
 
 @layer base {
-  /* El color base va en html, no en body. Body lo propagaría al canvas igual, pero
-     entonces body::before quedaría por detrás si alguien añadiera después un fondo a
-     <html> y los halos desaparecerían sin aviso. Con el color en html el orden de
-     pintado queda garantizado: canvas opaco, luego los halos, luego el contenido. */
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
   html {
     -webkit-tap-highlight-color: transparent;
     /* pull-to-refresh de Android desaparece con esto en el root. */
@@ -67,4 +74,13 @@
   option {
     @apply bg-ink-900 text-bone;
   }
+}
+
+/* Oculta la barra de scroll en navegación horizontal táctil */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

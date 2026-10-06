@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useBackButton } from './hooks/useBackButton'
 import ConnectionBadge from './components/ui/ConnectionBadge'
@@ -19,7 +19,7 @@ function LayoutShell({ children }) {
   )
 }
 
-export default function App() {
+function ViewportLock() {
   const location = useLocation()
 
   useEffect(() => {
@@ -33,8 +33,13 @@ export default function App() {
     }
   }, [location.pathname])
 
+  return null
+}
+
+export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
+      <ViewportLock />
       <Routes>
         <Route
           path="/"
@@ -86,6 +91,6 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   )
 }

@@ -87,12 +87,12 @@ export default function ModifierDialog({ product, groups, onConfirm, onClose }) 
   const unitTotal = Number(product.price ?? 0) + extraTotal
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-950/80 p-0 sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-950/80 p-0 backdrop-blur-sm sm:items-center sm:p-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Extras de ${product.name}`}
-        className="flex max-h-dvh w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border border-white/10 bg-ink-900 shadow-glass sm:rounded-3xl"
+        className="flex max-h-[88dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border border-white/10 bg-ink-900 shadow-glass sm:rounded-3xl"
       >
         <header className="flex items-start justify-between gap-3 border-b border-white/10 p-4">
           <div className="min-w-0">

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { CATEGORY_ORDER, getCategory } from '../data/categories'
 import supabase from '../lib/supabase'
 import { useAuthStore } from './useAuthStore'
+import { notifyLowStock } from '../lib/notifications'
 
 /**
  * Carta viva. El POS ya no importa un archivo estático: lee de `products`, que solo
@@ -81,6 +82,21 @@ export const useProductStore = create((set, get) => ({
   subscribe: (channelName = 'products') => {
     const channel = supabase
       .channel(channelName)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'products' },
+        (payload) => {
+          if (payload?.new && payload.new.tracks_stock) {
+            const newStock = Number(payload.new.stock ?? 0)
+            const threshold = Number(payload.new.low_stock_threshold ?? 5)
+            const oldStock = Number(payload.old?.stock ?? 999)
+            if (newStock <= threshold && oldStock > threshold) {
+              notifyLowStock(payload.new)
+            }
+          }
+          get().load({ force: true })
+        },
+      )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'products' },

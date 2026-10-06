@@ -21,8 +21,9 @@ import { Capacitor } from '@capacitor/core'
 import { KeepAwake } from '@capacitor-community/keep-awake'
 import { useConnectionStore, CONNECTION_EVENTS } from '../store/useConnectionStore'
 import { useAuthStore } from '../store/useAuthStore'
+import { requestNotificationPermission } from './notifications'
 
-const isNative = Capacitor.isPluginAvailable('SplashScreen')
+const isNative = Capacitor.isNativePlatform()
 
 let heartbeatId = null
 let cleanups = []
@@ -33,6 +34,8 @@ function dispatch(name) {
 
 export async function initCapacitor() {
   if (!isNative) return () => {} // web: nada que hacer
+
+  requestNotificationPermission()
 
   try {
     const { connected } = await Network.getStatus()

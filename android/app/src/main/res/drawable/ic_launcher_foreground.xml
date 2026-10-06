@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:translateX="0"
+        android:translateY="0">
+
+        <!-- Corona Imperial Superior (Imperial Crown Top) -->
+        <path
+            android:fillColor="#F7CE7E"
+            android:pathData="M48,27l3,5l3,-5l3,5l3,-5l2,7h-16z" />
+        <path
+            android:fillColor="#F0A830"
+            android:pathData="M51,26a1.5,1.5 0 1,1 -3,0a1.5,1.5 0 1,1 3,0z" />
+        <path
+            android:fillColor="#F0A830"
+            android:pathData="M55.5,24a1.5,1.5 0 1,1 -3,0a1.5,1.5 0 1,1 3,0z" />
+        <path
+            android:fillColor="#F0A830"
+            android:pathData="M60,26a1.5,1.5 0 1,1 -3,0a1.5,1.5 0 1,1 3,0z" />
+
+        <!-- Pan Superior Burger (Gourmet Bun Top) -->
+        <path
+            android:pathData="M32,48C32,36.5 41.8,35 54,35C66.2,35 76,36.5 76,48C76,49.5 74.5,51 72.5,51L35.5,51C33.5,51 32,49.5 32,48Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="32"
+                    android:startY="35"
+                    android:endX="76"
+                    android:endY="51"
+                    android:type="linear">
+                    <item android:offset="0.0" android:color="#FFF7CE7E" />
+                    <item android:offset="0.6" android:color="#FFF0A830" />
+                    <item android:offset="1.0" android:color="#FFDE8F1E" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <!-- Semillas de Sésamo (Sesame seeds) -->
+        <path android:fillColor="#0B0A0C" android:pathData="M42,41a1.5,1 0 1,0 3,0a1.5,1 0 1,0 -3,0z" />
+        <path android:fillColor="#0B0A0C" android:pathData="M52,39a1.5,1 0 1,0 3,0a1.5,1 0 1,0 -3,0z" />
+        <path android:fillColor="#0B0A0C" android:pathData="M62,41a1.5,1 0 1,0 3,0a1.5,1 0 1,0 -3,0z" />
+
+        <!-- Queso Fundido (Melted Cheese) -->
+        <path
+            android:fillColor="#F7CE7E"
+            android:pathData="M31,53h46l-2,4l-4,-2l-3,6l-5,-6l-6,4l-5,-4l-4,3l-4,-5l-5,2z" />
+
+        <!-- Carne / Patty -->
+        <path
+            android:fillColor="#B8710F"
+            android:pathData="M30,59h48c1.6,0 3,1.3 3,3v1c0,1.7 -1.4,3 -3,3h-48c-1.6,0 -3,-1.3 -3,-3v-1c0,-1.7 1.4,-3 3,-3z" />
+
+        <!-- Lechuga / Relleno Fresco -->
+        <path
+            android:fillColor="#4ADE9B"
+            android:pathData="M32,67c2,-1 4,1 6,0c2,-1 4,1 6,0c2,-1 4,1 6,0c2,-1 4,1 6,0c2,-1 4,1 6,0c2,-1 4,1 6,0"
+            android:strokeColor="#4ADE9B"
+            android:strokeWidth="2"
+            android:strokeLineCap="round" />
+
+        <!-- Pan Inferior (Bottom Bun) -->
+        <path
+            android:pathData="M33,71h42c2.2,0 4,1.8 4,4v1c0,3.3 -3.7,6 -8,6h-28c-4.3,0 -8,-2.7 -8,-6v-1c0,-2.2 1.8,-4 4,-4z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="33"
+                    android:startY="71"
+                    android:endX="75"
+                    android:endY="82"
+                    android:type="linear">
+                    <item android:offset="0.0" android:color="#FFF0A830" />
+                    <item android:offset="1.0" android:color="#FFB8710F" />
+                </gradient>
+            </aapt:attr>
+        </path>
+    </group>
+</vector>

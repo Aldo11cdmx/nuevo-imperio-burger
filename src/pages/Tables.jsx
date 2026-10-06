@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { LayoutGrid, Bell, Loader2, ReceiptText, Wallet } from 'lucide-react'
+import { LayoutGrid, Bell, Loader2, ReceiptText, Wallet, ShoppingBag } from 'lucide-react'
 import ScreenHeader from '../components/ScreenHeader'
 import TouchButton from '../components/TouchButton'
 import Toast from '../components/Toast'
 import TableMap from '../components/tables/TableMap'
 import SplitPaymentDialog from '../components/payment/SplitPaymentDialog'
-import TicketPreview from '../components/receipt/TicketPreview';
+import TicketPreview from '../components/receipt/TicketPreview'
 import { PANEL, PANEL_TITLE } from '../components/admin/fields'
 import { formatMXN, round2 } from '../lib/format'
 import { friendlyError } from '../lib/errors'
@@ -29,13 +29,16 @@ const STATUS_LABEL = {
   partially_paid: 'A medias',
 }
 
-
 const FILTERS = [
   { id: 'all', label: 'Todas' },
   { id: 'busy', label: 'Ocupadas' },
   { id: 'billing', label: 'Cobrando' },
   { id: 'free', label: 'Libres' },
 ]
+
+const TAKEOUT_TABLE = 999
+const TAKEOUT_BASE = { number: TAKEOUT_TABLE, label: 'Para llevar', isTakeout: true }
+const TAKEOUT_EMPTY = { ...TAKEOUT_BASE, state: 'free', openOrders: 0, amountDue: 0, customerNames: '' }
 
 /**
  * Mapa de mesas, pantalla de solo lectura para el personal.
@@ -58,6 +61,32 @@ export default function Tables() {
   const [unread, setUnread] = useState(0)
   const navigate = useNavigate()
 
+  const [takeout, setTakeout] = useState(TAKEOUT_EMPTY)
+
+  const fetchTakeout = useCallback(async () => {
+    const { data } = await supabase
+      .from('orders')
+      .select('id, total, paid_total, customer_name')
+      .eq('table_number', TAKEOUT_TABLE)
+      .in('status', OPEN_STATUSES)
+    const rows = data ?? []
+    const summary = {
+      ...TAKEOUT_BASE,
+      state: rows.length ? 'busy' : 'free',
+      openOrders: rows.length,
+      amountDue: round2(rows.reduce((a, o) => a + Math.max(0, (o.total ?? 0) - (o.paid_total ?? 0)), 0)),
+      customerNames: rows.map((o) => o.customer_name).filter(Boolean).join(', '),
+    }
+    setTakeout(summary)
+    setSelected((s) => (s?.isTakeout ? summary : s))
+  }, [])
+
+  useEffect(() => {
+    fetchTakeout()
+    const id = setInterval(fetchTakeout, 10000)
+    return () => clearInterval(id)
+  }, [fetchTakeout])
+
   const addDishesToTable = (order) => {
     useCartStore.getState().setTable(order.table_number)
     navigate('/pos')
@@ -78,12 +107,10 @@ export default function Tables() {
       return
     }
     await fetchTables()
+    await fetchTakeout()
     await openTable(selected)
   }
-  // La pre-cuenta se previsualiza antes de imprimir: se abre como un portal a body
-  // dentro de TablePreview, igual que el TicketPreview dentro del cobro. Vivir aquí y
-  // no dentro de cada <li> es lo que permite que el portal no se regenere al cambiar de
-  // mesa mientras se revisa el ticket.
+
   const [preview, setPreview] = useState(null)
 
   useEffect(() => {
@@ -91,9 +118,6 @@ export default function Tables() {
     return subscribe()
   }, [fetchTables, subscribe])
 
-  // Notificaciones de Realtime: cuando el cocinero marca una orden Lista, el mesero
-  // ve un anuncio. El contador de no leídas se mantiene en memoria solo por las que
-  // llegan mientras la pantalla está abierta; marcar leídas pone el contador a cero.
   useEffect(() => {
     const channel = supabase
       .channel('public:notifications')
@@ -115,25 +139,21 @@ export default function Tables() {
     }
   }, [])
 
-  // Al tocar una mesa con pedidos se leen sus órdenes abiertas. Se consulta por
-  // table_number directamente: el RPC del mapa no trae los uuid y makes otra ida
-  // solo para esto sería pegar un viaje al tablero entero.
   const openTable = async (table) => {
     setSelected(table)
-    if (!table || table.openOrders === 0) {
+    if (!table || (!table.isTakeout && table.openOrders === 0)) {
       setOpenOrders([])
       return
     }
 
     setOrdersLoading(true)
-    const { data } = await supabase
+    let query = supabase
       .from('orders')
-      .select(
-        '*, order_items(*, order_item_modifiers(*))'
-      )
-        .eq('table_number', table.number)
-      .in('status', OPEN_STATUSES)
-      .order('code', { ascending: true })
+      .select('*, order_items(*, order_item_modifiers(*))')
+    query = table.isTakeout
+      ? query.eq('table_number', TAKEOUT_TABLE)
+      : query.eq('table_number', table.number)
+    const { data } = await query.in('status', OPEN_STATUSES).order('code', { ascending: true })
 
     setOpenOrders(data ?? [])
     setOrdersLoading(false)
@@ -154,30 +174,30 @@ export default function Tables() {
         title="Mesas"
         subtitle={`${tables.filter((t) => t.state !== 'free').length} mesas ocupadas`}
         right={
-            <div className="flex items-center gap-1">
-             <button
-               type="button"
-               onClick={async () => {
-                 await supabase.rpc('mark_notifications_read').catch(() => {})
-                 setUnread(0)
-               }}
-               className="relative min-h-touch min-w-touch shrink-0 rounded-xl p-3 text-bone-muted hover:text-bone"
-               aria-label="Notificaciones"
-             >
-               <Bell size={20} />
-               {unread > 0 && (
-                 <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emberred-500 px-1 text-[10px] font-bold text-white">
-                   {unread}
-                 </span>
-               )}
-             </button>
-             <Link
-               to="/"
-               className="min-h-touch min-w-touch shrink-0 rounded-xl px-4 py-2 text-sm font-semibold text-bone-muted transition-colors hover:text-bone"
-             >
-               Menú
-             </Link>
-           </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={async () => {
+                await supabase.rpc('mark_notifications_read').catch(() => {})
+                setUnread(0)
+              }}
+              className="relative min-h-touch min-w-touch shrink-0 rounded-xl p-3 text-bone-muted hover:text-bone"
+              aria-label="Notificaciones"
+            >
+              <Bell size={20} />
+              {unread > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emberred-500 px-1 text-[10px] font-bold text-white">
+                  {unread}
+                </span>
+              )}
+            </button>
+            <Link
+              to="/"
+              className="min-h-touch min-w-touch shrink-0 rounded-xl px-4 py-2 text-sm font-semibold text-bone-muted transition-colors hover:text-bone"
+            >
+              Menú
+            </Link>
+          </div>
         }
       />
 
@@ -198,6 +218,21 @@ export default function Tables() {
           ))}
         </div>
 
+        <button
+          type="button"
+          onClick={() => openTable(takeout)}
+          className={`flex items-center justify-between rounded-2xl border bg-ink-800/60 p-4 text-left transition-colors ${
+            selected?.isTakeout ? 'border-saffron-400 bg-saffron-400/10' : 'border-white/10 hover:border-white/20'
+          }`}
+        >
+          <span className="flex items-center gap-2 font-semibold">
+            <ShoppingBag size={18} className="text-saffron-400" /> Para llevar
+          </span>
+          <span className="font-ticket text-sm font-bold text-saffron-400">
+            {takeout.openOrders} {takeout.openOrders === 1 ? 'orden' : 'órdenes'} · {formatMXN(takeout.amountDue)}
+          </span>
+        </button>
+
         <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
           <div className="min-w-0">
             {loading && tables.length === 0 ? (
@@ -212,7 +247,7 @@ export default function Tables() {
             )}
           </div>
 
-          {/* detalle de la mesa tocada */}
+          {/* detalle de la mesa / takeout tocada */}
           {selected && (
             <aside className={`${PANEL} h-fit`}>
               <h2 className={`${PANEL_TITLE} mb-3`}>{selected.label}</h2>
@@ -242,111 +277,112 @@ export default function Tables() {
 
               {!ordersLoading && openOrders.length > 0 && (
                 <ul className="space-y-2">
-                   {openOrders.map((order) => {
-                     const remaining = Math.max(0, round2(order.total - (order.paid_total ?? 0)))
-                     const items = order.order_items ?? []
-                     return (
-                       <li key={order.id} className="rounded-xl border border-white/10 bg-ink-800/60 p-3">
-                         <div className="mb-1 flex items-center justify-between text-sm">
-                           <div className="flex items-center gap-1.5">
-                             <span className="font-ticket font-bold text-saffron-400">#{order.code}</span>
-                             <span className="text-xs text-bone-muted">{STATUS_LABEL[order.status] ?? order.status}</span>
-                           </div>
-                           <span className="font-ticket font-bold">{formatMXN(remaining)}</span>
-                         </div>
-
-                         <p className="mb-2 text-xs text-bone-muted">
-                           {order.customer_name ?? 'Mostrador'} · {items.length} {items.length === 1 ? 'línea' : 'líneas'}
-                         </p>
-
-                         <ul className="mb-3 space-y-1">
-                           {items.map((it) => (
-                             <li key={it.id} className="flex justify-between text-xs">
-                               <span>
-                                 <span className="font-medium">{it.quantity}× </span>
-                                 {it.product_name}
-                                 {it.notes && (
-                                   <span className="block text-[10px] italic text-bone-muted">{it.notes}</span>
-                                 )}
-                                 {it.order_item_modifiers?.map((m) => (
-                                   <span key={m.id} className="block text-[10px] text-bone-muted">
-                                     {'+ '}{m.quantity}x {m.name}
-                                   </span>
-                                 ))}
-                               </span>
-                                <span className="text-bone-200">
-                                  {formatMXN(round2(
-                                    (it.price ?? 0) * it.quantity +
-                                      (it.order_item_modifiers ?? []).reduce(
-                                        (a, m) => a + (m.price ?? 0) * (m.quantity ?? 0),
-                                        0,
-                                      ),
-                                  ))}
-                                </span>
-                             </li>
-                           ))}
-                         </ul>
-
-                         <div className="mb-3 flex justify-between border-t border-white/10 pt-2 text-sm">
-                           <span className="text-bone-muted">Falta</span>
-                           <span className="font-ticket font-bold text-saffron-400">{formatMXN(remaining)}</span>
-                         </div>
-
-                         <div className="grid grid-cols-3 gap-1.5">
-                           <TouchButton
-                              className="text-xs"
-                              touchDebounce={400}
-                              onClick={() => {
-                                if (!pin) {
-                                  setToast({
-                                    tone: 'error',
-                                    title: 'Sin sesión',
-                                    detail: 'Ingresa con tu PIN para cobrar.',
-                                  })
-                                  return
-                                }
-                                setPayingTab('single')
-                                setPaying(order)
-                              }}
-                            >
-                              <Wallet size={14} /> Cobrar
-                            </TouchButton>
-                            <TouchButton
-                              className="text-xs"
-                              touchDebounce={400}
-                              onClick={() => {
-                                if (!pin) {
-                                  setToast({
-                                    tone: 'error',
-                                    title: 'Sin sesión',
-                                    detail: 'Ingresa con tu PIN para cobrar.',
-                                  })
-                                  return
-                                }
-                                setPayingTab('parts')
-                                setPaying(order)
-                              }}
-                            >
-                              Dividir cuenta
-                            </TouchButton>
-                            <TouchButton
-                              className="text-xs"
-                              onClick={() => setPreview(order)}
-                            >
-                              <ReceiptText size={14} /> Pre-cuenta
-                            </TouchButton>
+                  {openOrders.map((order) => {
+                    const remaining = Math.max(0, round2(order.total - (order.paid_total ?? 0)))
+                    const items = order.order_items ?? []
+                    return (
+                      <li key={order.id} className="rounded-xl border border-white/10 bg-ink-800/60 p-3">
+                        <div className="mb-1 flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-ticket font-bold text-saffron-400">#{order.code}</span>
+                            <span className="text-xs text-bone-muted">{STATUS_LABEL[order.status] ?? order.status}</span>
                           </div>
+                          <span className="font-ticket font-bold">{formatMXN(remaining)}</span>
+                        </div>
 
-                          {order.status === ORDER_STATUS.READY && (
-                            <TouchButton
-                              variant="secondary"
-                              className="mb-2 w-full text-xs"
-                              onClick={() => markServed(order)}
-                            >
-                              Marcar como servido
-                            </TouchButton>
-                          )}
+                        <p className="mb-2 text-xs text-bone-muted">
+                          {order.customer_name ?? 'Mostrador'} · {items.length} {items.length === 1 ? 'línea' : 'líneas'}
+                        </p>
 
+                        <ul className="mb-3 space-y-1">
+                          {items.map((it) => (
+                            <li key={it.id} className="flex justify-between text-xs">
+                              <span>
+                                <span className="font-medium">{it.quantity}× </span>
+                                {it.product_name}
+                                {it.notes && (
+                                  <span className="block text-[10px] italic text-bone-muted">{it.notes}</span>
+                                )}
+                                {it.order_item_modifiers?.map((m) => (
+                                  <span key={m.id} className="block text-[10px] text-bone-muted">
+                                    {'+ '}{m.quantity}x {m.name}
+                                  </span>
+                                ))}
+                              </span>
+                              <span className="text-bone-200">
+                                {formatMXN(round2(
+                                  (it.price ?? 0) * it.quantity +
+                                    (it.order_item_modifiers ?? []).reduce(
+                                      (a, m) => a + (m.price ?? 0) * (m.quantity ?? 0),
+                                      0,
+                                    ),
+                                ))}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+
+                        <div className="mb-3 flex justify-between border-t border-white/10 pt-2 text-sm">
+                          <span className="text-bone-muted">Falta</span>
+                          <span className="font-ticket font-bold text-saffron-400">{formatMXN(remaining)}</span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <TouchButton
+                            className="text-xs"
+                            touchDebounce={400}
+                            onClick={() => {
+                              if (!pin) {
+                                setToast({
+                                  tone: 'error',
+                                  title: 'Sin sesión',
+                                  detail: 'Ingresa con tu PIN para cobrar.',
+                                })
+                                return
+                              }
+                              setPayingTab('single')
+                              setPaying(order)
+                            }}
+                          >
+                            <Wallet size={14} /> Cobrar
+                          </TouchButton>
+                          <TouchButton
+                            className="text-xs"
+                            touchDebounce={400}
+                            onClick={() => {
+                              if (!pin) {
+                                setToast({
+                                  tone: 'error',
+                                  title: 'Sin sesión',
+                                  detail: 'Ingresa con tu PIN para cobrar.',
+                                })
+                                return
+                              }
+                              setPayingTab('parts')
+                              setPaying(order)
+                            }}
+                          >
+                            Dividir cuenta
+                          </TouchButton>
+                          <TouchButton
+                            className="text-xs"
+                            onClick={() => setPreview(order)}
+                          >
+                            <ReceiptText size={14} /> Pre-cuenta
+                          </TouchButton>
+                        </div>
+
+                        {order.status === ORDER_STATUS.READY && (
+                          <TouchButton
+                            variant="secondary"
+                            className="mb-2 w-full text-xs"
+                            onClick={() => markServed(order)}
+                          >
+                            Marcar como servido
+                          </TouchButton>
+                        )}
+
+                        {order.table_number !== TAKEOUT_TABLE && (
                           <button
                             type="button"
                             onClick={() => addDishesToTable(order)}
@@ -354,9 +390,10 @@ export default function Tables() {
                           >
                             Agregar más platillos
                           </button>
-                       </li>
-                     )
-                   })}
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
             </aside>
@@ -365,7 +402,7 @@ export default function Tables() {
 
         {!selected && (
           <p className="flex items-center justify-center gap-2 py-8 text-sm text-bone-muted">
-            <LayoutGrid size={16} /> Toca una mesa para ver su cuenta
+            <LayoutGrid size={16} /> Toca una mesa o "Para llevar" para ver su cuenta
           </p>
         )}
       </main>
@@ -377,6 +414,7 @@ export default function Tables() {
           onClose={() => { setPaying(null); setPayingTab('single') }}
           onPaid={async () => {
             await fetchTables()
+            await fetchTakeout()
             await openTable(selected)
             setToast({ tone: 'success', title: `Cobro a la orden #${paying.code}` })
           }}

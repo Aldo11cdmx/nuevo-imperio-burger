@@ -9,6 +9,8 @@ import { formatMXN } from '../lib/format'
 import { useAuthStore } from '../store/useAuthStore'
 import { useExpenseStore } from '../store/useExpenseStore'
 import { useShiftStore } from '../store/useShiftStore'
+import { generateShiftPDF } from '../lib/pdfReport'
+import { playBeep, playSuccess } from '../lib/audio'
 
 /**
  * Caja: apertura de turno, Corte X (lectura) y Corte Z (cierre).
@@ -334,17 +336,73 @@ function OpenShiftPanel({ shift, onClose }) {
           />
         </dl>
 
-        <TouchButton className="mt-5 w-full" onClick={onClose}>
-          Abrir un turno nuevo
-        </TouchButton>
+        <div className="mt-5 flex gap-2">
+          <TouchButton
+            variant="secondary"
+            className="flex-1 text-xs"
+            onClick={() => {
+              playBeep()
+              generateShiftPDF({
+                shift: {
+                  id: receipt.id || 'CorteZ',
+                  opening_float: receipt.opening_float,
+                  cash_sales: receipt.cash_sales,
+                  card_sales: receipt.card_sales || 0,
+                  transfer_sales: receipt.transfer_sales || 0,
+                  total_expenses: receipt.expenses,
+                  expected_cash: receipt.expected_cash,
+                  actual_cash: receipt.counted_total,
+                  difference: receipt.cash_difference,
+                },
+                business: { name: 'Nuevo Imperio Burger' },
+                staffName: employee?.full_name,
+                expenses,
+              })
+            }}
+          >
+            📄 Reporte PDF
+          </TouchButton>
+          <TouchButton className="flex-1" onClick={onClose}>
+            Abrir turno
+          </TouchButton>
+        </div>
       </div>
     )
   }
 
   return (
     <div className={`${PANEL} max-w-2xl`}>
-      <p className={`${PANEL_TITLE} mb-1`}>Corte X · turno abierto</p>
-      <h2 className="font-display text-2xl font-bold">Estado de la gaveta</h2>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className={`${PANEL_TITLE} mb-1`}>Corte X · turno abierto</p>
+          <h2 className="font-display text-2xl font-bold">Estado de la gaveta</h2>
+        </div>
+        <TouchButton
+          variant="secondary"
+          className="px-3 py-2 text-xs"
+          onClick={() => {
+            playBeep()
+            generateShiftPDF({
+              shift: {
+                id: shift.id || 'CorteX',
+                opening_float: shift.opening_float,
+                cash_sales: shift.cash_sales,
+                card_sales: shift.card_sales,
+                transfer_sales: shift.transfer_sales,
+                total_expenses: expenseTotal,
+                expected_cash: expected,
+                actual_cash: shift.cash_sales,
+                difference: 0,
+              },
+              business: { name: 'Nuevo Imperio Burger' },
+              staffName: employee?.full_name,
+              expenses,
+            })
+          }}
+        >
+          📄 Reporte PDF
+        </TouchButton>
+      </div>
 
       <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Fondo" value={formatMXN(shift.opening_float)} />

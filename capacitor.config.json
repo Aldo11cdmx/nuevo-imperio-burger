@@ -8,10 +8,24 @@
   },
   "plugins": {
     "SplashScreen": {
-      "launchAutoHide": false
+      "launchAutoHide": true,
+      "launchShowDuration": 3000,
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false
     },
     "KeepAwake": {
       "keepAwake": true
+    },
+    "StatusBar": {
+      "overlaysWebView": true,
+      "style": "DARK",
+      "visible": false,
+      "backgroundColor": "#0B0A0C"
+    },
+    "Keyboard": {
+      "resize": "body",
+      "style": "DARK",
+      "resizeOnFullScreen": true
     }
   }
 }

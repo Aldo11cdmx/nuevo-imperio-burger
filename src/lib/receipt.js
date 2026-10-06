@@ -1,3 +1,6 @@
+import { Capacitor } from '@capacitor/core'
+import { imprimirTicket } from './thermalPrint'
+
 /**
  * Ticket térmico, comanda de cocina y envío por WhatsApp.
  *
@@ -374,6 +377,10 @@ function escapeHtml(text) {
  * @returns {boolean} false si el navegador bloqueó el diálogo de impresión.
  */
 export function printReceipt(text, { fontSize = 11, bold = false } = {}) {
+  if (Capacitor.isNativePlatform()) {
+    return imprimirTicket(text, 'auto')
+  }
+
   const frame = document.createElement('iframe')
   frame.style.position = 'fixed'
   frame.style.right = '0'
